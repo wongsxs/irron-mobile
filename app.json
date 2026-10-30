@@ -32,7 +32,7 @@
       [
         "llama.rn",
         {
-          "enableOpenCL": true
+          "enableOpenCLAndHexagon": true
         }
       ],
       [
@@ -43,6 +43,11 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d411eb3d-cd70-40ec-b89c-8aec176724c0"
+      }
+    }
   }
 }
