@@ -42,7 +42,8 @@
             "extraProguardRules": "-keep class com.rnllama.** { *; }"
           }
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "extra": {
       "eas": {
