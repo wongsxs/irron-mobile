@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Component } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,15 +12,57 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Share,
-  Clipboard
+  Share
 } from 'react-native';
+import { registerRootComponent } from 'expo';
 import * as FileSystem from 'expo-file-system';
 
 // URL Model Resmi dari GitHub Release yang baru saja kita publikasikan
 const MODEL_DOWNLOAD_URL = 'https://github.com/wongsxs/irron-mobile/releases/download/v1.0.0/irron-model.gguf';
 const MODEL_FILE_NAME = 'irron-1.5b.gguf';
-const MODEL_LOCAL_PATH = `${FileSystem.documentDirectory}${MODEL_FILE_NAME}`;
+
+const getModelLocalPath = () => {
+  const dir = FileSystem.documentDirectory || '';
+  return `${dir}${MODEL_FILE_NAME}`;
+};
+
+// Error Boundary agar jika ada runtime error tidak terjadi blank white screen
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('IRRON Error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={styles.darkContainer}>
+          <StatusBar barStyle="light-content" backgroundColor="#070a11" />
+          <View style={styles.centerBox}>
+            <Text style={{ fontSize: 20, color: '#ef4444', fontWeight: 'bold', marginBottom: 12 }}>
+              Terjadi Kesalahan Aplikasi
+            </Text>
+            <Text style={{ color: '#cbd5e1', textAlign: 'center', marginHorizontal: 24, fontSize: 13, marginBottom: 20 }}>
+              {this.state.error?.toString()}
+            </Text>
+            <TouchableOpacity
+              style={styles.downloadButton}
+              onPress={() => this.setState({ hasError: false, error: null })}
+            >
+              <Text style={styles.downloadButtonText}>Coba Lagi</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const MODES = [
   { id: 'architect', label: '🐍 Python Pro', prompt: 'Kamu adalah IRRON, arsitek kodingan Python handal. Utamakan clean code, PEP 8, dan type hints.' },
@@ -29,6 +71,14 @@ const MODES = [
 ];
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
+  );
+}
+
+function MainApp() {
   // Status Aplikasi
   const [isModelReady, setIsModelReady] = useState(false);
   const [isCheckingModel, setIsCheckingModel] = useState(true);
@@ -57,7 +107,8 @@ export default function App() {
   const checkModelExists = async () => {
     try {
       setIsCheckingModel(true);
-      const fileInfo = await FileSystem.getInfoAsync(MODEL_LOCAL_PATH);
+      const localPath = getModelLocalPath();
+      const fileInfo = await FileSystem.getInfoAsync(localPath);
       
       // Jika file ada dan ukurannya valid (> 900 MB)
       if (fileInfo.exists && fileInfo.size > 900 * 1024 * 1024) {
@@ -113,9 +164,10 @@ export default function App() {
       setIsDownloading(true);
       setDownloadProgress(0);
 
+      const localPath = getModelLocalPath();
       const downloadResumable = FileSystem.createDownloadResumable(
         MODEL_DOWNLOAD_URL,
-        MODEL_LOCAL_PATH,
+        localPath,
         {},
         (progress) => {
           const ratio = progress.totalBytesWritten / progress.totalBytesExpectedToWrite;
@@ -610,3 +662,5 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
+
+registerRootComponent(App);
