@@ -13,11 +13,13 @@ import {
   Platform,
   Alert,
   Share,
-  Image
+  Image,
+  ScrollView
 } from 'react-native';
 import { registerRootComponent } from 'expo';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
 
 // URL Model Resmi IRRON 3B (Otak Terbaru) dari GitHub Release
 const MODEL_DOWNLOAD_URL = 'https://github.com/wongsxs/irron-mobile/releases/download/v1.0.0/irron-3b.gguf';
@@ -28,6 +30,150 @@ const getModelLocalPath = () => {
   const dir = FileSystem.documentDirectory || '';
   return `${dir}${MODEL_FILE_NAME}`;
 };
+
+// =================== PARSER MARKDOWN & CODE ===================
+function parseMarkdownBlocks(text) {
+  if (!text) return [];
+  const blocks = [];
+  // Split berdasarkan blok kode (```lang ... ``` atau ```lang ...)
+  const parts = text.split(/(```[\s\S]*?```|```[\s\S]*$)/g);
+  for (const part of parts) {
+    if (!part) continue;
+    if (part.startsWith('```')) {
+      const isClosed = part.length >= 6 && part.endsWith('```');
+      const inner = isClosed ? part.slice(3, -3) : part.slice(3);
+      const firstLineBreak = inner.indexOf('\n');
+      let lang = 'CODE';
+      let code = inner;
+      if (firstLineBreak !== -1) {
+        const potentialLang = inner.slice(0, firstLineBreak).trim();
+        if (potentialLang.length > 0 && potentialLang.length < 20) {
+          lang = potentialLang.toUpperCase();
+          code = inner.slice(firstLineBreak + 1);
+        }
+      }
+      blocks.push({ type: 'code', lang, code: code.replace(/\n$/, '') });
+    } else {
+      blocks.push({ type: 'text', content: part });
+    }
+  }
+  return blocks;
+}
+
+// =================== KOMPONEN CODE BLOCK IDE ===================
+function CodeBlock({ code, language }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await Clipboard.setStringAsync(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.log('Copy error:', e);
+    }
+  };
+
+  return (
+    <View style={styles.codeContainer}>
+      {/* Header Bar IDE */}
+      <View style={styles.codeHeader}>
+        <View style={styles.codeHeaderLeft}>
+          <View style={[styles.windowDot, { backgroundColor: '#ef4444' }]} />
+          <View style={[styles.windowDot, { backgroundColor: '#f59e0b' }]} />
+          <View style={[styles.windowDot, { backgroundColor: '#10b981' }]} />
+          <Text style={styles.codeLangText}>{language || 'CODE'}</Text>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.copyBtn, copied && styles.copyBtnSuccess]} 
+          onPress={handleCopy}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.copyBtnText, copied && styles.copyBtnTextSuccess]}>
+            {copied ? '✓ Disalin!' : '📋 Salin Kode'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Area Teks Kode dengan Scroll Horizontal */}
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false} 
+        style={styles.codeScrollView}
+        contentContainerStyle={{ padding: 14 }}
+      >
+        <Text style={styles.codeBodyText} selectable={true}>
+          {code}
+        </Text>
+      </ScrollView>
+    </View>
+  );
+}
+
+// =================== KOMPONEN TEKS MARKDOWN ===================
+function FormattedText({ content, isUser }) {
+  // Parsing inline code `code` dan **bold**
+  const parts = content.split(/(`[^`]+`)/g);
+
+  return (
+    <Text style={[styles.messageText, isUser ? styles.userText : styles.assistantText]}>
+      {parts.map((part, idx) => {
+        if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+          return (
+            <Text key={idx} style={styles.inlineCode}>
+              {part.slice(1, -1)}
+            </Text>
+          );
+        }
+        // Bold formatting **text**
+        const boldParts = part.split(/(\*\*[^*]+\*\*)/g);
+        return boldParts.map((bPart, bIdx) => {
+          if (bPart.startsWith('**') && bPart.endsWith('**') && bPart.length >= 4) {
+            return (
+              <Text key={`${idx}-${bIdx}`} style={styles.boldText}>
+                {bPart.slice(2, -2)}
+              </Text>
+            );
+          }
+          return bPart;
+        });
+      })}
+    </Text>
+  );
+}
+
+// =================== KOMPONEN KONTEN PESAN ===================
+function MessageContent({ text, isUser, onCopyWhole, onShare }) {
+  if (!text) return <Text style={styles.placeholderText}>Mengetik...</Text>;
+
+  if (isUser) {
+    return <Text style={[styles.messageText, styles.userText]}>{text}</Text>;
+  }
+
+  const blocks = parseMarkdownBlocks(text);
+
+  return (
+    <View style={styles.messageContentWrapper}>
+      {blocks.map((block, idx) => {
+        if (block.type === 'code') {
+          return <CodeBlock key={idx} code={block.code} language={block.lang} />;
+        }
+        return <FormattedText key={idx} content={block.content} isUser={false} />;
+      })}
+
+      {/* Action Footer untuk Pesan AI */}
+      <View style={styles.assistantFooter}>
+        <TouchableOpacity style={styles.actionPill} onPress={onCopyWhole}>
+          <Text style={styles.actionPillText}>📋 Salin Semua</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionPill} onPress={onShare}>
+          <Text style={styles.actionPillText}>↗ Bagikan</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
 
 // Error Boundary agar jika ada runtime error tidak terjadi blank white screen
 class ErrorBoundary extends Component {
@@ -75,12 +221,12 @@ Karakteristik & Gaya Bicara IRRON:
 1. Panggil diri kamu 'IRRON'.
 2. Gaya bahasa luwes berbahasa Indonesia (menggunakan gaya akrab, santai, pintar, dan suportif layaknya sahabat diskusi yang cerdas), tidak kaku, dan mudah dimengerti.
 3. Selalu berikan jawaban yang to-the-point, berbobot, akurat, dan solutif.
-4. Kamu siap menjawab segala topik apa pun yang ditanyakan oleh pengguna.
+4. Jika memberikan kode pemrograman, selalu gunakan format markdown fenced code blocks dengan menyebutkan bahasa pemrograman di baris pertama (misal: \`\`\`python ... \`\`\`), sertakan komentar penjelas yang jelas.
 5. Jika pengguna melampirkan gambar/foto (misal: soal tugas, diagram, catatan, atau tangkapan layar), bantulah menganalisis, membaca, atau menyelesaikan persoalan di dalamnya secara terperinci.`;
 
 const MODES = [
   { id: 'general', label: '🧠 General AI', prompt: `${GENERAL_SYSTEM_PROMPT}\nJawablah pertanyaan secara cerdas, komprehensif, dan mudah dipahami untuk segala topik umum.` },
-  { id: 'coder', label: '💻 Coding & Tech', prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada rekayasa perangkat lunak, algoritma, arsitektur, clean code, dan debugging dengan contoh kode konkret.` },
+  { id: 'coder', label: '💻 Coding & Tech', prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada rekayasa perangkat lunak, algoritma, arsitektur, clean code, dan debugging dengan contoh kode konkret yang rapi berformat markdown.` },
   { id: 'creative', label: '💡 Ide & Kreatif', prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan artikel/konten, copywriting, dan sudut pandang kreatif.` },
   { id: 'chill', label: '⚡ Fast & Chill', prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, ringkas, padat informasi, tanpa bertele-tele.` }
 ];
@@ -157,7 +303,7 @@ function MainApp() {
         {
           id: 'welcome',
           role: 'assistant',
-          text: 'Halo bro! Gue IRRON AI (Otak 3B). Gue siap jawab dan diskusi soal apa aja: topik umum, sains, ide kreatif, tanya lewat foto/gambar, sampai kodingan mendalam — 100% OFFLINE di HP lo. Mau bahas apa hari ini?'
+          text: 'Halo bro! Gue IRRON AI (Otak 3B). Gue siap jawab dan diskusi soal apa aja: topik umum, sains, ide kreatif, analisis foto 📷, sampai kodingan dengan syntax highlighting rapi — 100% OFFLINE di HP lo. Mau bahas apa hari ini?'
         }
       ]);
     } catch (err) {
@@ -261,7 +407,28 @@ function MainApp() {
     );
   };
 
-  // 5. Kirim Pesan & Generate Jawaban (Offline Inference)
+  // 5. Salin & Bagikan Seluruh Pesan
+  const handleCopyWholeMessage = async (text) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      Alert.alert('Tersalin!', 'Jawaban berhasil disalin ke clipboard.');
+    } catch (e) {
+      console.log(e);
+    }
+  };
+
+  const handleShareMessage = async (text) => {
+    try {
+      await Share.share({
+        message: text,
+        title: 'Jawaban dari IRRON AI'
+      });
+    } catch (e) {
+      console.log(e);
+    }
+  };
+
+  // 6. Kirim Pesan & Generate Jawaban (Offline Inference)
   const handleSendMessage = async () => {
     const text = inputText.trim();
     if ((!text && !selectedImage) || isGenerating) return;
@@ -319,7 +486,7 @@ function MainApp() {
         setTimeout(() => {
           setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
             ...m,
-            text: `[IRRON 3B Offline]: Jawaban untuk pertanyaan lo akan diproses langsung secara lokal di HP tanpa internet begitu model 3B selesai diunduh!`
+            text: `[IRRON 3B Offline]: Jawaban untuk pertanyaan lo akan diproses langsung secara lokal di HP tanpa internet begitu model 3B selesai diunduh!\n\nContoh kodingan:\n\`\`\`python\n# Contoh Code Block IRRON\ndef sapa(nama: str) -> str:\n    return f"Halo {nama}, selamat datang di IRRON AI!"\n\nprint(sapa("Bro"))\n\`\`\``
           } : m));
           setIsGenerating(false);
         }, 1000);
@@ -364,6 +531,7 @@ function MainApp() {
             <Text style={styles.badgeText}>🧠 Otak: Qwen 2.5 3B Instruct (Versi Terbaru)</Text>
             <Text style={styles.badgeText}>🌐 General AI: Jawab Semua Topik, Coding & Ide</Text>
             <Text style={styles.badgeText}>📸 Visual Ready: Dilengkapi Fitur Tanya via Foto</Text>
+            <Text style={styles.badgeText}>⚡ Markdown & Code Block: Salin Kode Satu-Klik</Text>
             <Text style={styles.badgeText}>🔒 Privasi 100%: Tanpa Internet & Tanpa Server Luar</Text>
           </View>
 
@@ -410,7 +578,7 @@ function MainApp() {
 
         <TouchableOpacity 
           style={styles.cleanButton} 
-          onPress={() => setMessages([{ id: 'welcome', role: 'assistant', text: 'Chat dibersihkan. Mau ngobrol atau tanya apa lagi bro?' }])}
+          onPress={() => setMessages([{ id: 'welcome', role: 'assistant', text: 'Chat dibersihkan. Mau ngobrol atau tanya kodingan apa lagi bro?' }])}
         >
           <Text style={styles.cleanButtonText}>Reset</Text>
         </TouchableOpacity>
@@ -443,9 +611,12 @@ function MainApp() {
             {item.image && (
               <Image source={{ uri: item.image }} style={styles.messageImage} resizeMode="cover" />
             )}
-            <Text style={[styles.messageText, item.role === 'user' ? styles.userText : styles.assistantText]}>
-              {item.text || '...'}
-            </Text>
+            <MessageContent 
+              text={item.text} 
+              isUser={item.role === 'user'} 
+              onCopyWhole={() => handleCopyWholeMessage(item.text)}
+              onShare={() => handleShareMessage(item.text)}
+            />
           </View>
         )}
       />
@@ -474,7 +645,7 @@ function MainApp() {
             style={styles.textInput}
             value={inputText}
             onChangeText={setInputText}
-            placeholder={selectedImage ? "Tanya soal foto ini..." : "Tanya apa saja ke IRRON..."}
+            placeholder={selectedImage ? "Tanya soal foto ini..." : "Tanya apa saja atau minta kode..."}
             placeholderTextColor="#64748b"
             multiline
           />
@@ -699,10 +870,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   messageBubble: {
-    maxWidth: '82%',
+    maxWidth: '92%',
     padding: 14,
     borderRadius: 18,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   userBubble: {
     alignSelf: 'flex-end',
@@ -711,24 +882,132 @@ const styles = StyleSheet.create({
   },
   assistantBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#111827',
     borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  messageContentWrapper: {
+    width: '100%',
   },
   messageText: {
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 14.5,
+    lineHeight: 22,
   },
   userText: {
     color: '#ffffff',
   },
   assistantText: {
-    color: '#f1f5f9',
+    color: '#e2e8f0',
+  },
+  boldText: {
+    fontWeight: '700',
+    color: '#f8fafc',
+  },
+  inlineCode: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    backgroundColor: '#1e293b',
+    color: '#38bdf8',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    fontSize: 13,
+  },
+  placeholderText: {
+    color: '#64748b',
+    fontStyle: 'italic',
+    fontSize: 14,
+  },
+  // CODE BLOCK STYLING
+  codeContainer: {
+    marginVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#030712',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    overflow: 'hidden',
+    width: '100%',
+  },
+  codeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0f172a',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e293b',
+  },
+  codeHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  windowDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  codeLangText: {
+    color: '#94a3b8',
+    fontSize: 11,
+    fontWeight: '700',
+    marginLeft: 6,
+    letterSpacing: 0.8,
+  },
+  copyBtn: {
+    backgroundColor: '#1e293b',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  copyBtnSuccess: {
+    backgroundColor: '#064e3b',
+  },
+  copyBtnText: {
+    color: '#38bdf8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  copyBtnTextSuccess: {
+    color: '#34d399',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  codeScrollView: {
+    maxHeight: 320,
+  },
+  codeBodyText: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontSize: 13,
+    color: '#f8fafc',
+    lineHeight: 20,
+  },
+  assistantFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#1e293b',
+  },
+  actionPill: {
+    backgroundColor: '#1e293b',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 8,
+  },
+  actionPillText: {
+    color: '#94a3b8',
+    fontSize: 11,
+    fontWeight: '500',
   },
   messageImage: {
-    width: 220,
-    height: 150,
+    width: 240,
+    height: 160,
     borderRadius: 12,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   imagePreviewContainer: {
     flexDirection: 'row',
