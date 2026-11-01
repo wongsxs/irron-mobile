@@ -22,6 +22,7 @@ import { registerRootComponent } from 'expo';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as db from './src/db';
 
 // URL Model Resmi IRRON 3B (Otak Terbaru) dari GitHub Release
@@ -91,8 +92,14 @@ function CodeBlock({ code, language }) {
           onPress={handleCopy}
           activeOpacity={0.7}
         >
+          <Ionicons 
+            name={copied ? "checkmark-sharp" : "copy-outline"} 
+            size={13} 
+            color={copied ? "#34d399" : "#94a3b8"} 
+            style={{ marginRight: 4 }}
+          />
           <Text style={[styles.copyBtnText, copied && styles.copyBtnTextSuccess]}>
-            {copied ? '✓ Berhasil Disalin!' : '📋 Salin Kode'}
+            {copied ? 'Disalin' : 'Salin Kode'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -167,19 +174,19 @@ function MessageContent({ text, isUser, isStreaming, onCopyWhole, onShare }) {
         return <FormattedText key={idx} content={block.content} isUser={false} />;
       })}
 
-      {/* Kursor berkedip saat sedang streaming jawaban */}
       {isStreaming && (
         <Text style={styles.blinkingCursor}>▍</Text>
       )}
 
-      {/* Action Footer untuk Pesan AI */}
       {!isStreaming && text.length > 0 && (
         <View style={styles.assistantFooter}>
           <TouchableOpacity style={styles.actionPill} onPress={onCopyWhole} activeOpacity={0.7}>
-            <Text style={styles.actionPillText}>📋 Salin</Text>
+            <Ionicons name="copy-outline" size={13} color="#94a3b8" style={{ marginRight: 4 }} />
+            <Text style={styles.actionPillText}>Salin</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionPill} onPress={onShare} activeOpacity={0.7}>
-            <Text style={styles.actionPillText}>↗ Bagikan</Text>
+            <Ionicons name="share-social-outline" size={13} color="#94a3b8" style={{ marginRight: 4 }} />
+            <Text style={styles.actionPillText}>Bagikan</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -222,7 +229,8 @@ class ErrorBoundary extends Component {
         <SafeAreaView style={styles.darkContainer}>
           <StatusBar barStyle="light-content" backgroundColor="#070a11" />
           <View style={styles.centerBox}>
-            <Text style={{ fontSize: 20, color: '#ef4444', fontWeight: 'bold', marginBottom: 12 }}>
+            <Ionicons name="alert-circle-outline" size={48} color="#ef4444" style={{ marginBottom: 12 }} />
+            <Text style={{ fontSize: 18, color: '#ef4444', fontWeight: 'bold', marginBottom: 8 }}>
               Terjadi Kesalahan Aplikasi
             </Text>
             <Text style={{ color: '#cbd5e1', textAlign: 'center', marginHorizontal: 24, fontSize: 13, marginBottom: 20 }}>
@@ -254,40 +262,78 @@ Karakteristik & Gaya Bicara IRRON:
 5. Jika pengguna melampirkan gambar/foto (misal: soal tugas, diagram, catatan, atau tangkapan layar), bantulah menganalisis, membaca, atau menyelesaikan persoalan di dalamnya secara terperinci.`;
 
 const MODES = [
-  { id: 'general', icon: '🧠', label: 'General AI', prompt: `${GENERAL_SYSTEM_PROMPT}\nJawablah pertanyaan secara cerdas, komprehensif, dan mudah dipahami untuk segala topik umum.` },
-  { id: 'coder', icon: '💻', label: 'Coding & Tech', prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada rekayasa perangkat lunak, algoritma, arsitektur, clean code, dan debugging dengan contoh kode konkret yang rapi berformat markdown.` },
-  { id: 'creative', icon: '💡', label: 'Ide & Kreatif', prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan artikel/konten, copywriting, dan sudut pandang kreatif.` },
-  { id: 'chill', icon: '⚡', label: 'Fast & Chill', prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, ringkas, padat informasi, tanpa bertele-tele.` }
+  { id: 'general', iconType: 'brain', label: 'General AI', prompt: `${GENERAL_SYSTEM_PROMPT}\nJawablah pertanyaan secara cerdas, komprehensif, dan mudah dipahami untuk segala topik umum.` },
+  { id: 'coder', iconType: 'code', label: 'Coding & Tech', prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada rekayasa perangkat lunak, algoritma, arsitektur, clean code, dan debugging dengan contoh kode konkret yang rapi berformat markdown.` },
+  { id: 'creative', iconType: 'bulb', label: 'Ide & Kreatif', prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan artikel/konten, copywriting, dan sudut pandang kreatif.` },
+  { id: 'chill', iconType: 'flash', label: 'Fast & Chill', prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, ringkas, padat informasi, tanpa bertele-tele.` }
 ];
+
+// Helper render icon mode
+function renderModeIcon(iconType, isActive) {
+  const color = isActive ? '#38bdf8' : '#94a3b8';
+  const size = 16;
+  switch (iconType) {
+    case 'brain':
+      return <MaterialCommunityIcons name="brain" size={size} color={color} style={{ marginRight: 6 }} />;
+    case 'code':
+      return <MaterialCommunityIcons name="code-tags" size={size} color={color} style={{ marginRight: 6 }} />;
+    case 'bulb':
+      return <Ionicons name="bulb-outline" size={size} color={color} style={{ marginRight: 6 }} />;
+    case 'flash':
+      return <Ionicons name="flash-outline" size={size} color={color} style={{ marginRight: 6 }} />;
+    default:
+      return null;
+  }
+}
 
 // 4 Kartu Inspirasi Prompt untuk Tampilan Kosong (Hero Dashboard)
 const QUICK_PROMPTS = [
   {
-    icon: '💻',
+    iconType: 'code',
+    iconColor: '#38bdf8',
     category: 'Koding & Tech',
     title: 'Buat API REST Python',
     prompt: 'Buatkan contoh REST API CRUD sederhana dengan Python FastAPI dan SQLite lengkap dengan komentar penjelas.'
   },
   {
-    icon: '💡',
+    iconType: 'bulb',
+    iconColor: '#f59e0b',
     category: 'Ide Bisnis',
     title: 'Ide Usaha Modal Ringan',
     prompt: 'Bantu berikan 3 ide bisnis digital yang realistis dan potensial dijalankan tahun 2026 dengan modal minim.'
   },
   {
-    icon: '🧠',
-    category: 'Sains & Teknologi',
+    iconType: 'atom',
+    iconColor: '#10b981',
+    category: 'Sains & Edukasi',
     title: 'Penjelasan Quantum Computing',
     prompt: 'Jelaskan bagaimana komputer kuantum bekerja dan apa bedanya dengan komputer biasa secara sederhana.'
   },
   {
-    icon: '📸',
+    iconType: 'camera',
+    iconColor: '#ec4899',
     category: 'Tanya via Gambar',
     title: 'Analisis Soal / Kodingan',
     isImageAction: true,
     prompt: 'Lampirkan foto tugas atau screenshot kodingan'
   }
 ];
+
+function renderCardIcon(iconType, color) {
+  const size = 20;
+  switch (iconType) {
+    case 'code':
+      return <MaterialCommunityIcons name="code-braces" size={size} color={color} />;
+    case 'bulb':
+      return <Ionicons name="bulb-outline" size={size} color={color} />;
+    case 'atom':
+      return <MaterialCommunityIcons name="atom" size={size} color={color} />;
+    case 'camera':
+      return <Ionicons name="camera-outline" size={size} color={color} />;
+    default:
+      return null;
+  }
+}
 
 export default function App() {
   return (
@@ -518,7 +564,7 @@ function MainApp() {
       'Pilih sumber foto/gambar untuk dianalisis:',
       [
         {
-          text: '📷 Ambil Foto (Kamera)',
+          text: 'Ambil Foto (Kamera)',
           onPress: async () => {
             try {
               const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -539,7 +585,7 @@ function MainApp() {
           }
         },
         {
-          text: '🖼️ Pilih dari Galeri',
+          text: 'Pilih dari Galeri',
           onPress: async () => {
             try {
               const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -634,7 +680,7 @@ function MainApp() {
     // Auto-update judul obrolan jika masih nama default
     const curSession = sessions.find(s => s.id === targetSessionId);
     if (curSession && (curSession.title === 'Obrolan Baru' || curSession.title.startsWith('Obrolan Baru'))) {
-      const cleanSnippet = (text || 'Analisis Gambar 📷').replace(/[\r\n]+/g, ' ').trim();
+      const cleanSnippet = (text || 'Analisis Gambar').replace(/[\r\n]+/g, ' ').trim();
       const newTitle = cleanSnippet.length > 28 ? cleanSnippet.slice(0, 28) + '...' : cleanSnippet;
       db.updateSessionTitle(targetSessionId, newTitle);
       setSessions(prev => prev.map(s => s.id === targetSessionId ? { ...s, title: newTitle, updated_at: Date.now() } : s));
@@ -708,7 +754,7 @@ function MainApp() {
         return;
       }
     } catch (err) {
-      const errText = `❌ Error komputasi lokal: ${err.message}`;
+      const errText = `Error komputasi lokal: ${err.message}`;
       setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
         ...m,
         text: errText
@@ -739,7 +785,7 @@ function MainApp() {
         <StatusBar barStyle="light-content" backgroundColor="#070a11" />
         <View style={styles.centerBox}>
           <View style={styles.avatarGlowSmall}>
-            <Text style={{ fontSize: 32 }}>⚡</Text>
+            <Ionicons name="flash" size={32} color="#ffffff" />
           </View>
           <ActivityIndicator size="large" color="#38bdf8" style={{ marginTop: 20 }} />
           <Text style={styles.checkingText}>Memeriksa engine IRRON 3B di HP lo...</Text>
@@ -754,19 +800,37 @@ function MainApp() {
         <StatusBar barStyle="light-content" backgroundColor="#070a11" />
         <View style={styles.downloaderCard}>
           <View style={styles.avatarGlow}>
-            <Text style={styles.avatarEmoji}>🤖</Text>
+            <MaterialCommunityIcons name="robot" size={44} color="#ffffff" />
           </View>
 
           <Text style={styles.title}>IRRON AI Mobile v3</Text>
           <Text style={styles.subtitle}>100% Offline General AI & Neural Assistant</Text>
 
           <View style={styles.infoBadge}>
-            <Text style={styles.badgeText}>🧠 Otak: Qwen 2.5 3B Instruct (Versi Flagship)</Text>
-            <Text style={styles.badgeText}>🌐 General AI: Jawab Semua Topik, Coding & Ide Bisnis</Text>
-            <Text style={styles.badgeText}>📸 Visual Ready: Fitur Analisis Gambar & Soal</Text>
-            <Text style={styles.badgeText}>⚡ Markdown & Code Block: Salin Kode Satu-Klik</Text>
-            <Text style={styles.badgeText}>🗂️ Riwayat SQLite: Chat Tersimpan Permanen di HP</Text>
-            <Text style={styles.badgeText}>🔒 Privasi 100%: Tanpa Internet & Tanpa Server Luar</Text>
+            <View style={styles.badgeRow}>
+              <Ionicons name="checkmark-circle" size={16} color="#38bdf8" style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={styles.badgeText}>Otak: Qwen 2.5 3B Instruct (Versi Flagship)</Text>
+            </View>
+            <View style={styles.badgeRow}>
+              <Ionicons name="checkmark-circle" size={16} color="#38bdf8" style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={styles.badgeText}>General AI: Jawab Semua Topik, Coding & Ide Bisnis</Text>
+            </View>
+            <View style={styles.badgeRow}>
+              <Ionicons name="checkmark-circle" size={16} color="#38bdf8" style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={styles.badgeText}>Visual Ready: Fitur Analisis Gambar & Soal</Text>
+            </View>
+            <View style={styles.badgeRow}>
+              <Ionicons name="checkmark-circle" size={16} color="#38bdf8" style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={styles.badgeText}>Markdown & Code Block: Salin Kode Satu-Klik</Text>
+            </View>
+            <View style={styles.badgeRow}>
+              <Ionicons name="checkmark-circle" size={16} color="#38bdf8" style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={styles.badgeText}>Riwayat SQLite: Chat Tersimpan Permanen di HP</Text>
+            </View>
+            <View style={styles.badgeRow}>
+              <Ionicons name="checkmark-circle" size={16} color="#38bdf8" style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={styles.badgeText}>Privasi 100%: Tanpa Internet & Tanpa Server Luar</Text>
+            </View>
           </View>
 
           {isDownloading ? (
@@ -782,7 +846,8 @@ function MainApp() {
             </View>
           ) : (
             <TouchableOpacity style={styles.downloadButton} onPress={startDownloadModel} activeOpacity={0.85}>
-              <Text style={styles.downloadButtonText}>📥 Unduh Otak IRRON 3B ({totalMB} MB)</Text>
+              <Ionicons name="download-outline" size={18} color="#020617" style={{ marginRight: 6 }} />
+              <Text style={styles.downloadButtonText}>Unduh Otak IRRON 3B ({totalMB} MB)</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -795,7 +860,7 @@ function MainApp() {
     <SafeAreaView style={styles.darkContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#090d18" />
 
-      {/* HEADER BAR FUTURISTIK */}
+      {/* HEADER BAR FUTURISTIK DENGAN ANDROID ICONS */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity 
@@ -803,12 +868,12 @@ function MainApp() {
             onPress={() => setIsDrawerOpen(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.drawerToggleIcon}>☰</Text>
+            <Ionicons name="menu-outline" size={22} color="#38bdf8" />
           </TouchableOpacity>
 
           <View style={styles.headerAvatarContainer}>
             <View style={styles.smallAvatar}>
-              <Text style={{ fontSize: 16 }}>⚡</Text>
+              <Ionicons name="flash" size={17} color="#ffffff" />
             </View>
             <View style={styles.avatarOnlinePulse} />
           </View>
@@ -829,11 +894,12 @@ function MainApp() {
           onPress={handleCreateNewSession}
           activeOpacity={0.7}
         >
-          <Text style={styles.newChatHeaderBtnText}>＋ Baru</Text>
+          <Ionicons name="add" size={16} color="#ffffff" style={{ marginRight: 2 }} />
+          <Text style={styles.newChatHeaderBtnText}>Baru</Text>
         </TouchableOpacity>
       </View>
 
-      {/* MODE PILLS DENGAN ACTIVE GLOW */}
+      {/* MODE PILLS DENGAN ANDROID VECTOR ICONS */}
       <View style={styles.modeContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modeScrollContent}>
           {MODES.map(m => {
@@ -845,7 +911,7 @@ function MainApp() {
                 style={[styles.modePill, isActive && styles.activeModePill]}
                 activeOpacity={0.7}
               >
-                <Text style={styles.modePillIcon}>{m.icon}</Text>
+                {renderModeIcon(m.iconType, isActive)}
                 <Text style={[styles.modePillText, isActive && styles.activeModePillText]}>
                   {m.label}
                 </Text>
@@ -860,10 +926,10 @@ function MainApp() {
         <ScrollView contentContainerStyle={styles.emptyHeroContainer} showsVerticalScrollIndicator={false}>
           <View style={styles.heroAvatarBox}>
             <View style={styles.heroAvatarGlow}>
-              <Text style={{ fontSize: 38 }}>⚡</Text>
+              <Ionicons name="hardware-chip-outline" size={38} color="#ffffff" />
             </View>
             <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>● 3B NEURAL ENGINE OFFLINE</Text>
+              <Text style={styles.heroBadgeText}>3B NEURAL ENGINE OFFLINE</Text>
             </View>
           </View>
 
@@ -872,7 +938,7 @@ function MainApp() {
             Kecerdasan buatan personal serba bisa. Diskusi, kodingan, ide bisnis, dan analisis foto tanpa internet.
           </Text>
 
-          {/* KARTU PROMPT CEPAT */}
+          {/* KARTU PROMPT CEPAT DENGAN VECTOR ICONS */}
           <View style={styles.quickPromptsGrid}>
             {QUICK_PROMPTS.map((card, idx) => (
               <TouchableOpacity 
@@ -882,8 +948,10 @@ function MainApp() {
                 activeOpacity={0.75}
               >
                 <View style={styles.promptCardHeader}>
-                  <Text style={styles.promptCardIcon}>{card.icon}</Text>
-                  <Text style={styles.promptCardCategory}>{card.category}</Text>
+                  <View style={[styles.cardIconBadge, { backgroundColor: `${card.iconColor}15` }]}>
+                    {renderCardIcon(card.iconType, card.iconColor)}
+                  </View>
+                  <Text style={[styles.promptCardCategory, { color: card.iconColor }]}>{card.category}</Text>
                 </View>
                 <Text style={styles.promptCardTitle}>{card.title}</Text>
                 <Text style={styles.promptCardSnippet} numberOfLines={2}>
@@ -909,7 +977,7 @@ function MainApp() {
               <View style={[styles.messageBubbleWrapper, isUser ? styles.userBubbleWrapper : styles.assistantBubbleWrapper]}>
                 {!isUser && (
                   <View style={styles.assistantAvatarTag}>
-                    <Text style={{ fontSize: 13 }}>⚡</Text>
+                    <Ionicons name="flash" size={12} color="#38bdf8" />
                     <Text style={styles.assistantTagText}>IRRON 3B</Text>
                   </View>
                 )}
@@ -943,16 +1011,19 @@ function MainApp() {
         <View style={styles.imagePreviewContainer}>
           <Image source={{ uri: selectedImage }} style={styles.thumbnail} />
           <View style={styles.imageInfo}>
-            <Text style={styles.imageAttachedText}>📷 Foto Siap Dianalisis</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="image-outline" size={14} color="#38bdf8" style={{ marginRight: 4 }} />
+              <Text style={styles.imageAttachedText}>Foto Siap Dianalisis</Text>
+            </View>
             <Text style={styles.imageSubText}>Tekan tombol kirim untuk memproses via IRRON</Text>
           </View>
           <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.removeImageBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={styles.removeImageText}>✕</Text>
+            <Ionicons name="close" size={18} color="#94a3b8" />
           </TouchableOpacity>
         </View>
       )}
 
-      {/* FLOATING CYBER INPUT DOCK */}
+      {/* FLOATING CYBER INPUT DOCK DENGAN VECTOR ICONS */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.inputDock}>
           <TouchableOpacity 
@@ -960,7 +1031,11 @@ function MainApp() {
             onPress={handlePickImage}
             activeOpacity={0.7}
           >
-            <Text style={{ fontSize: 19 }}>📷</Text>
+            <Ionicons 
+              name="camera-outline" 
+              size={21} 
+              color={selectedImage ? "#38bdf8" : "#94a3b8"} 
+            />
           </TouchableOpacity>
 
           <TextInput
@@ -978,7 +1053,7 @@ function MainApp() {
               onPress={handleStopGeneration}
               activeOpacity={0.8}
             >
-              <View style={styles.stopIconSquare} />
+              <Ionicons name="stop" size={17} color="#ffffff" />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity 
@@ -987,13 +1062,17 @@ function MainApp() {
               disabled={!inputText.trim() && !selectedImage}
               activeOpacity={0.8}
             >
-              <Text style={styles.sendButtonText}>➔</Text>
+              <Ionicons 
+                name="arrow-up" 
+                size={20} 
+                color={(!inputText.trim() && !selectedImage) ? "#64748b" : "#020617"} 
+              />
             </TouchableOpacity>
           )}
         </View>
       </KeyboardAvoidingView>
 
-      {/* =================== SIDEBAR DRAWER RIWAYAT CHAT =================== */}
+      {/* =================== SIDEBAR DRAWER DENGAN ANDROID ICONS =================== */}
       <Modal
         visible={isDrawerOpen}
         animationType="fade"
@@ -1008,7 +1087,7 @@ function MainApp() {
             <View style={styles.drawerHeader}>
               <View style={styles.drawerBrand}>
                 <View style={styles.smallAvatar}>
-                  <Text style={{ fontSize: 16 }}>⚡</Text>
+                  <Ionicons name="flash" size={17} color="#ffffff" />
                 </View>
                 <View>
                   <Text style={styles.drawerBrandTitle}>IRRON AI v3</Text>
@@ -1016,7 +1095,7 @@ function MainApp() {
                 </View>
               </View>
               <TouchableOpacity style={styles.closeDrawerBtn} onPress={() => setIsDrawerOpen(false)}>
-                <Text style={styles.closeDrawerText}>✕</Text>
+                <Ionicons name="close" size={22} color="#94a3b8" />
               </TouchableOpacity>
             </View>
 
@@ -1026,13 +1105,13 @@ function MainApp() {
               onPress={handleCreateNewSession}
               activeOpacity={0.8}
             >
-              <Text style={styles.newChatDrawerPlus}>＋</Text>
+              <Ionicons name="add" size={20} color="#ffffff" style={{ marginRight: 6 }} />
               <Text style={styles.newChatDrawerText}>Percakapan Baru</Text>
             </TouchableOpacity>
 
             {/* Input Pencarian Obrolan */}
             <View style={styles.searchBarContainer}>
-              <Text style={styles.searchIcon}>🔍</Text>
+              <Ionicons name="search-outline" size={16} color="#64748b" style={{ marginRight: 6 }} />
               <TextInput
                 style={styles.searchBarInput}
                 value={searchDrawerQuery}
@@ -1042,7 +1121,7 @@ function MainApp() {
               />
               {searchDrawerQuery.length > 0 && (
                 <TouchableOpacity onPress={() => setSearchDrawerQuery('')}>
-                  <Text style={{ color: '#94a3b8', fontSize: 13, paddingHorizontal: 6 }}>✕</Text>
+                  <Ionicons name="close-circle" size={16} color="#94a3b8" />
                 </TouchableOpacity>
               )}
             </View>
@@ -1056,6 +1135,7 @@ function MainApp() {
             {/* List Sesi Obrolan */}
             {filteredSessions.length === 0 ? (
               <View style={styles.emptySessionView}>
+                <Ionicons name="chatbubbles-outline" size={32} color="#334155" style={{ marginBottom: 8 }} />
                 <Text style={styles.emptySessionText}>
                   {searchDrawerQuery.trim() ? 'Tidak ada obrolan yang cocok' : 'Belum ada obrolan. Buat obrolan baru!'}
                 </Text>
@@ -1075,7 +1155,12 @@ function MainApp() {
                       activeOpacity={0.7}
                     >
                       <View style={styles.sessionCardLeft}>
-                        <Text style={styles.sessionIcon}>💬</Text>
+                        <Ionicons 
+                          name="chatbubble-ellipses-outline" 
+                          size={17} 
+                          color={isActive ? "#38bdf8" : "#64748b"} 
+                          style={{ marginRight: 10 }}
+                        />
                         <View style={styles.sessionTextCol}>
                           <Text 
                             style={[styles.sessionTitleText, isActive && styles.sessionTitleTextActive]}
@@ -1095,14 +1180,14 @@ function MainApp() {
                           onPress={() => handleStartRename(item)}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          <Text style={styles.actionIconText}>✏️</Text>
+                          <MaterialIcons name="edit" size={16} color="#94a3b8" />
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={styles.actionIconBtn} 
                           onPress={() => handleConfirmDeleteSession(item)}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          <Text style={styles.actionIconText}>🗑️</Text>
+                          <MaterialIcons name="delete-outline" size={17} color="#ef4444" />
                         </TouchableOpacity>
                       </View>
                     </TouchableOpacity>
@@ -1113,7 +1198,8 @@ function MainApp() {
 
             {/* Footer Drawer */}
             <View style={styles.drawerFooter}>
-              <Text style={styles.drawerFooterText}>🔒 Tersimpan di SQLite Lokal HP Lo</Text>
+              <Ionicons name="shield-checkmark-outline" size={13} color="#64748b" style={{ marginRight: 5 }} />
+              <Text style={styles.drawerFooterText}>Tersimpan di SQLite Lokal HP Lo</Text>
             </View>
           </View>
         </View>
@@ -1208,9 +1294,6 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 10,
   },
-  avatarEmoji: {
-    fontSize: 42,
-  },
   title: {
     fontSize: 26,
     fontWeight: '800',
@@ -1233,11 +1316,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1e293b',
   },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
   badgeText: {
     color: '#cbd5e1',
     fontSize: 13,
-    lineHeight: 22,
+    lineHeight: 20,
     fontWeight: '500',
+    flex: 1,
   },
   progressContainer: {
     width: '100%',
@@ -1273,8 +1362,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   downloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#38bdf8',
-    paddingVertical: 16,
+    paddingVertical: 15,
     paddingHorizontal: 28,
     borderRadius: 16,
     shadowColor: '#38bdf8',
@@ -1316,11 +1408,6 @@ const styles = StyleSheet.create({
     marginRight: 10,
     borderWidth: 1,
     borderColor: '#1e293b',
-  },
-  drawerToggleIcon: {
-    fontSize: 18,
-    color: '#38bdf8',
-    fontWeight: 'bold',
   },
   headerAvatarContainer: {
     position: 'relative',
@@ -1371,6 +1458,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   newChatHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#0284c7',
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -1413,10 +1502,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 3,
-  },
-  modePillIcon: {
-    fontSize: 13,
-    marginRight: 6,
   },
   modePillText: {
     color: '#94a3b8',
@@ -1499,16 +1584,20 @@ const styles = StyleSheet.create({
   promptCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  promptCardIcon: {
-    fontSize: 15,
+  cardIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 6,
   },
   promptCardCategory: {
-    color: '#38bdf8',
     fontSize: 11,
     fontWeight: '700',
+    flex: 1,
   },
   promptCardTitle: {
     color: '#f8fafc',
@@ -1655,6 +1744,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#1e293b',
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -1690,6 +1781,8 @@ const styles = StyleSheet.create({
     borderTopColor: '#19243a',
   },
   actionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#151f33',
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -1742,11 +1835,6 @@ const styles = StyleSheet.create({
   },
   removeImageBtn: {
     padding: 8,
-  },
-  removeImageText: {
-    color: '#94a3b8',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
 
   // FLOATING CYBER INPUT DOCK
@@ -1805,11 +1893,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
-  sendButtonText: {
-    color: '#020617',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
   stopButton: {
     width: 42,
     height: 42,
@@ -1818,12 +1901,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
-  },
-  stopIconSquare: {
-    width: 14,
-    height: 14,
-    backgroundColor: '#ffffff',
-    borderRadius: 2,
   },
 
   // STYLES DRAWER
@@ -1873,11 +1950,6 @@ const styles = StyleSheet.create({
   closeDrawerBtn: {
     padding: 8,
   },
-  closeDrawerText: {
-    color: '#94a3b8',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
   newChatDrawerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1892,12 +1964,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 4,
-  },
-  newChatDrawerPlus: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginRight: 6,
   },
   newChatDrawerText: {
     color: '#ffffff',
@@ -1914,10 +1980,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: '#1e293b',
-  },
-  searchIcon: {
-    fontSize: 13,
-    marginRight: 6,
   },
   searchBarInput: {
     flex: 1,
@@ -1978,10 +2040,6 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 6,
   },
-  sessionIcon: {
-    fontSize: 16,
-    marginRight: 10,
-  },
   sessionTextCol: {
     flex: 1,
   },
@@ -2007,14 +2065,13 @@ const styles = StyleSheet.create({
     padding: 6,
     marginLeft: 4,
   },
-  actionIconText: {
-    fontSize: 13,
-  },
   drawerFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: '#1e293b',
-    alignItems: 'center',
   },
   drawerFooterText: {
     color: '#64748b',
