@@ -14,12 +14,15 @@ import {
   Alert,
   Share,
   Image,
-  ScrollView
+  ScrollView,
+  Modal,
+  Pressable
 } from 'react-native';
 import { registerRootComponent } from 'expo';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
+import * as db from './src/db';
 
 // URL Model Resmi IRRON 3B (Otak Terbaru) dari GitHub Release
 const MODEL_DOWNLOAD_URL = 'https://github.com/wongsxs/irron-mobile/releases/download/v1.0.0/irron-3b.gguf';
@@ -35,7 +38,6 @@ const getModelLocalPath = () => {
 function parseMarkdownBlocks(text) {
   if (!text) return [];
   const blocks = [];
-  // Split berdasarkan blok kode (```lang ... ``` atau ```lang ...)
   const parts = text.split(/(```[\s\S]*?```|```[\s\S]*$)/g);
   for (const part of parts) {
     if (!part) continue;
@@ -76,7 +78,6 @@ function CodeBlock({ code, language }) {
 
   return (
     <View style={styles.codeContainer}>
-      {/* Header Bar IDE */}
       <View style={styles.codeHeader}>
         <View style={styles.codeHeaderLeft}>
           <View style={[styles.windowDot, { backgroundColor: '#ef4444' }]} />
@@ -96,7 +97,6 @@ function CodeBlock({ code, language }) {
         </TouchableOpacity>
       </View>
 
-      {/* Area Teks Kode dengan Scroll Horizontal */}
       <ScrollView 
         horizontal 
         showsHorizontalScrollIndicator={false} 
@@ -113,7 +113,6 @@ function CodeBlock({ code, language }) {
 
 // =================== KOMPONEN TEKS MARKDOWN ===================
 function FormattedText({ content, isUser }) {
-  // Parsing inline code `code` dan **bold**
   const parts = content.split(/(`[^`]+`)/g);
 
   return (
@@ -126,7 +125,6 @@ function FormattedText({ content, isUser }) {
             </Text>
           );
         }
-        // Bold formatting **text**
         const boldParts = part.split(/(\*\*[^*]+\*\*)/g);
         return boldParts.map((bPart, bIdx) => {
           if (bPart.startsWith('**') && bPart.endsWith('**') && bPart.length >= 4) {
@@ -162,7 +160,6 @@ function MessageContent({ text, isUser, onCopyWhole, onShare }) {
         return <FormattedText key={idx} content={block.content} isUser={false} />;
       })}
 
-      {/* Action Footer untuk Pesan AI */}
       <View style={styles.assistantFooter}>
         <TouchableOpacity style={styles.actionPill} onPress={onCopyWhole}>
           <Text style={styles.actionPillText}>📋 Salin Semua</Text>
@@ -175,7 +172,24 @@ function MessageContent({ text, isUser, onCopyWhole, onShare }) {
   );
 }
 
-// Error Boundary agar jika ada runtime error tidak terjadi blank white screen
+// Format waktu obrolan
+function formatTimestamp(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+
+  if (isToday) {
+    return `Hari ini, ${hours}:${minutes}`;
+  }
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  return `${day}/${month}, ${hours}:${minutes}`;
+}
+
+// Error Boundary
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -213,7 +227,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-// System Prompt General AI Serba Bisa (Jawab Segala Topik & Analisis Gambar)
+// System Prompt General AI
 const GENERAL_SYSTEM_PROMPT = `Kamu adalah IRRON, kecerdasan buatan personal serba bisa yang cerdas, adaptif, solutif, dan ramah.
 Kamu memiliki wawasan luas dalam berbagai bidang: ilmu pengetahuan umum, sains, matematika, sejarah, ide bisnis, penulisan artikel & kreatif, percakapan santai sehari-hari, serta rekayasa perangkat lunak dan teknologi.
 
@@ -230,6 +244,12 @@ const MODES = [
   { id: 'creative', label: '💡 Ide & Kreatif', prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan artikel/konten, copywriting, dan sudut pandang kreatif.` },
   { id: 'chill', label: '⚡ Fast & Chill', prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, ringkas, padat informasi, tanpa bertele-tele.` }
 ];
+
+const DEFAULT_WELCOME_MESSAGE = {
+  id: 'welcome',
+  role: 'assistant',
+  text: 'Halo bro! Gue IRRON AI (Otak 3B). Gue siap jawab dan diskusi soal apa aja: topik umum, sains, ide kreatif, analisis foto 📷, sampai kodingan dengan syntax highlighting rapi — 100% OFFLINE di HP lo.\n\nRiwayat chat ini otomatis tersimpan di SQLite lokal HP lo. Mau bahas apa hari ini?'
+};
 
 export default function App() {
   return (
@@ -250,29 +270,144 @@ function MainApp() {
   const [downloadedMB, setDownloadedMB] = useState('0');
   const [totalMB, setTotalMB] = useState(MODEL_SIZE_MB);
   
-  // Status Chat & AI
+  // Status Chat & Sesi (SQLite)
   const [llamaContext, setLlamaContext] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [messages, setMessages] = useState([DEFAULT_WELCOME_MESSAGE]);
   const [inputText, setInputText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeMode, setActiveMode] = useState('general');
   const [selectedImage, setSelectedImage] = useState(null);
+
+  // Status Drawer & Rename Modal
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [editingSession, setEditingSession] = useState(null);
+  const [editTitleText, setEditTitleText] = useState('');
   
   const flatListRef = useRef(null);
   const downloadTaskRef = useRef(null);
 
-  // 1. Cek keberadaan model 3B di memori HP saat pertama kali buka app
+  // Inisialisasi Database SQLite & Sesi saat aplikasi terbuka
   useEffect(() => {
+    initChatDatabase();
     checkModelExists();
   }, []);
 
+  const initChatDatabase = () => {
+    try {
+      const allSessions = db.getAllSessions();
+      if (allSessions && allSessions.length > 0) {
+        setSessions(allSessions);
+        const latestId = allSessions[0].id;
+        setActiveSessionId(latestId);
+        loadSessionMessages(latestId);
+      } else {
+        const initial = db.createNewSession('Obrolan Baru');
+        setSessions([initial]);
+        setActiveSessionId(initial.id);
+        setMessages([DEFAULT_WELCOME_MESSAGE]);
+      }
+    } catch (e) {
+      console.log('Database init error:', e);
+    }
+  };
+
+  const loadSessionMessages = (sessionId) => {
+    try {
+      const dbMsgs = db.getMessagesForSession(sessionId);
+      if (dbMsgs && dbMsgs.length > 0) {
+        setMessages(dbMsgs);
+      } else {
+        setMessages([DEFAULT_WELCOME_MESSAGE]);
+      }
+    } catch (e) {
+      console.log('Load messages error:', e);
+    }
+  };
+
+  // Pilih Sesi dari Drawer
+  const handleSelectSession = (sessionId) => {
+    if (sessionId === activeSessionId) {
+      setIsDrawerOpen(false);
+      return;
+    }
+    setActiveSessionId(sessionId);
+    loadSessionMessages(sessionId);
+    setIsDrawerOpen(false);
+  };
+
+  // Buat Sesi Obrolan Baru
+  const handleCreateNewSession = () => {
+    try {
+      const newSession = db.createNewSession('Obrolan Baru');
+      setSessions(prev => [newSession, ...prev]);
+      setActiveSessionId(newSession.id);
+      setMessages([DEFAULT_WELCOME_MESSAGE]);
+      setIsDrawerOpen(false);
+    } catch (e) {
+      console.log('Create session error:', e);
+    }
+  };
+
+  // Modal Rename Sesi
+  const handleStartRename = (session) => {
+    setEditingSession(session);
+    setEditTitleText(session.title);
+    setIsRenameModalOpen(true);
+  };
+
+  const handleSaveRename = () => {
+    if (!editingSession || !editTitleText.trim()) {
+      setIsRenameModalOpen(false);
+      return;
+    }
+    const cleanTitle = editTitleText.trim();
+    db.updateSessionTitle(editingSession.id, cleanTitle);
+    setSessions(prev => prev.map(s => s.id === editingSession.id ? { ...s, title: cleanTitle } : s));
+    setIsRenameModalOpen(false);
+  };
+
+  // Hapus Sesi
+  const handleConfirmDeleteSession = (session) => {
+    Alert.alert(
+      'Hapus Obrolan?',
+      `Yakin ingin menghapus "${session.title}" beserta seluruh riwayat pesannya?`,
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Hapus',
+          style: 'destructive',
+          onPress: () => {
+            db.deleteSession(session.id);
+            const remaining = sessions.filter(s => s.id !== session.id);
+            if (remaining.length === 0) {
+              const fresh = db.createNewSession('Obrolan Baru');
+              setSessions([fresh]);
+              setActiveSessionId(fresh.id);
+              setMessages([DEFAULT_WELCOME_MESSAGE]);
+            } else {
+              setSessions(remaining);
+              if (session.id === activeSessionId) {
+                const nextSessionId = remaining[0].id;
+                setActiveSessionId(nextSessionId);
+                loadSessionMessages(nextSessionId);
+              }
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Cek keberadaan model 3B di memori HP
   const checkModelExists = async () => {
     try {
       setIsCheckingModel(true);
       const localPath = getModelLocalPath();
       const fileInfo = await FileSystem.getInfoAsync(localPath);
       
-      // Jika file ada dan ukurannya valid (> 1.8 GB untuk model 3B)
       if (fileInfo.exists && fileInfo.size > 1800 * 1024 * 1024) {
         setIsModelReady(true);
         initLocalLlama(fileInfo.uri);
@@ -287,7 +422,7 @@ function MainApp() {
     }
   };
 
-  // 2. Inisialisasi engine llama.cpp lokal
+  // Inisialisasi engine llama.cpp lokal
   const initLocalLlama = async (modelPath) => {
     try {
       const { initLlama } = require('llama.rn');
@@ -295,30 +430,16 @@ function MainApp() {
         model: modelPath,
         use_mlock: true,
         n_ctx: 2048,
-        n_threads: 4, // Optimal untuk 4 core ARM di smartphone
-        n_gpu_layers: 0 // CPU ARM NEON bawaan (100% stabil)
+        n_threads: 4,
+        n_gpu_layers: 0
       });
       setLlamaContext(ctx);
-      setMessages([
-        {
-          id: 'welcome',
-          role: 'assistant',
-          text: 'Halo bro! Gue IRRON AI (Otak 3B). Gue siap jawab dan diskusi soal apa aja: topik umum, sains, ide kreatif, analisis foto 📷, sampai kodingan dengan syntax highlighting rapi — 100% OFFLINE di HP lo. Mau bahas apa hari ini?'
-        }
-      ]);
     } catch (err) {
       console.log('Inisialisasi llama.rn:', err);
-      setMessages([
-        {
-          id: 'ready-info',
-          role: 'assistant',
-          text: '⚡ Otak IRRON 3B (~1.93 GB) sudah terdeteksi di HP lo!\n\nEngine native C++ llama.cpp siap mengambil alih komputasi offline.'
-        }
-      ]);
     }
   };
 
-  // 3. Download Otak IRRON 3B dari GitHub Release
+  // Download Otak IRRON 3B dari GitHub Release
   const startDownloadModel = async () => {
     try {
       setIsDownloading(true);
@@ -354,7 +475,7 @@ function MainApp() {
     }
   };
 
-  // 4. Pilih Gambar (Kamera atau Galeri)
+  // Pilih Gambar (Kamera atau Galeri)
   const handlePickImage = () => {
     Alert.alert(
       'Tanya via Gambar',
@@ -407,7 +528,7 @@ function MainApp() {
     );
   };
 
-  // 5. Salin & Bagikan Seluruh Pesan
+  // Salin & Bagikan Seluruh Pesan
   const handleCopyWholeMessage = async (text) => {
     try {
       await Clipboard.setStringAsync(text);
@@ -428,10 +549,18 @@ function MainApp() {
     }
   };
 
-  // 6. Kirim Pesan & Generate Jawaban (Offline Inference)
+  // Kirim Pesan & Generate Jawaban (Offline Inference)
   const handleSendMessage = async () => {
     const text = inputText.trim();
     if ((!text && !selectedImage) || isGenerating) return;
+
+    let targetSessionId = activeSessionId;
+    if (!targetSessionId) {
+      const fresh = db.createNewSession('Obrolan Baru');
+      targetSessionId = fresh.id;
+      setActiveSessionId(fresh.id);
+      setSessions([fresh]);
+    }
 
     const currentImage = selectedImage;
     setSelectedImage(null);
@@ -444,13 +573,26 @@ function MainApp() {
       id: userMsgId,
       role: 'user',
       text: text || (currentImage ? 'Tolong analisis foto/gambar ini bro.' : ''),
-      image: currentImage
+      image: currentImage,
+      createdAt: Date.now()
     };
 
+    // Auto-update judul obrolan jika masih nama default
+    const curSession = sessions.find(s => s.id === targetSessionId);
+    if (curSession && (curSession.title === 'Obrolan Baru' || curSession.title.startsWith('Obrolan Baru'))) {
+      const cleanSnippet = (text || 'Analisis Gambar 📷').replace(/[\r\n]+/g, ' ').trim();
+      const newTitle = cleanSnippet.length > 28 ? cleanSnippet.slice(0, 28) + '...' : cleanSnippet;
+      db.updateSessionTitle(targetSessionId, newTitle);
+      setSessions(prev => prev.map(s => s.id === targetSessionId ? { ...s, title: newTitle, updated_at: Date.now() } : s));
+    }
+
+    // Simpan pesan user ke SQLite
+    db.saveMessage(targetSessionId, userMessage);
+
     const updated = [
-      ...messages,
+      ...messages.filter(m => m.id !== 'welcome'),
       userMessage,
-      { id: assistantMsgId, role: 'assistant', text: '' }
+      { id: assistantMsgId, role: 'assistant', text: '', createdAt: Date.now() }
     ];
     setMessages(updated);
     setIsGenerating(true);
@@ -482,25 +624,52 @@ function MainApp() {
             }
           }
         );
+
+        // Simpan pesan akhir AI ke SQLite
+        db.saveMessage(targetSessionId, {
+          id: assistantMsgId,
+          role: 'assistant',
+          text: streamText,
+          createdAt: Date.now()
+        });
       } else {
         setTimeout(() => {
+          const fallbackText = `[IRRON 3B Offline]: Jawaban untuk pertanyaan lo akan diproses langsung secara lokal di HP tanpa internet begitu model 3B selesai diunduh!\n\nContoh kodingan:\n\`\`\`python\n# Contoh Code Block IRRON\ndef sapa(nama: str) -> str:\n    return f"Halo {nama}, selamat datang di IRRON AI!"\n\nprint(sapa("Bro"))\n\`\`\``;
+          
           setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
             ...m,
-            text: `[IRRON 3B Offline]: Jawaban untuk pertanyaan lo akan diproses langsung secara lokal di HP tanpa internet begitu model 3B selesai diunduh!\n\nContoh kodingan:\n\`\`\`python\n# Contoh Code Block IRRON\ndef sapa(nama: str) -> str:\n    return f"Halo {nama}, selamat datang di IRRON AI!"\n\nprint(sapa("Bro"))\n\`\`\``
+            text: fallbackText
           } : m));
+          
+          db.saveMessage(targetSessionId, {
+            id: assistantMsgId,
+            role: 'assistant',
+            text: fallbackText,
+            createdAt: Date.now()
+          });
           setIsGenerating(false);
         }, 1000);
         return;
       }
     } catch (err) {
+      const errText = `❌ Error komputasi lokal: ${err.message}`;
       setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
         ...m,
-        text: `❌ Error komputasi lokal: ${err.message}`
+        text: errText
       } : m));
+      db.saveMessage(targetSessionId, {
+        id: assistantMsgId,
+        role: 'assistant',
+        text: errText,
+        createdAt: Date.now()
+      });
     } finally {
       setIsGenerating(false);
     }
   };
+
+  const currentSessionObj = sessions.find(s => s.id === activeSessionId);
+  const currentTitle = currentSessionObj ? currentSessionObj.title : 'IRRON AI';
 
   // =================== LAYAR 1: DOWNLOADER OTAK 3B ===================
   if (isCheckingModel) {
@@ -532,6 +701,7 @@ function MainApp() {
             <Text style={styles.badgeText}>🌐 General AI: Jawab Semua Topik, Coding & Ide</Text>
             <Text style={styles.badgeText}>📸 Visual Ready: Dilengkapi Fitur Tanya via Foto</Text>
             <Text style={styles.badgeText}>⚡ Markdown & Code Block: Salin Kode Satu-Klik</Text>
+            <Text style={styles.badgeText}>🗂️ Riwayat SQLite: Chat Tersimpan Permanen di HP</Text>
             <Text style={styles.badgeText}>🔒 Privasi 100%: Tanpa Internet & Tanpa Server Luar</Text>
           </View>
 
@@ -556,19 +726,30 @@ function MainApp() {
     );
   }
 
-  // =================== LAYAR 2: CHAT OFFLINE ===================
+  // =================== LAYAR 2: CHAT OFFLINE + DRAWER ===================
   return (
     <SafeAreaView style={styles.darkContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#0c101b" />
 
-      {/* HEADER */}
+      {/* HEADER BAR DENGAN TOMBOL DRAWER & NEW CHAT */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+          <TouchableOpacity 
+            style={styles.drawerToggleBtn} 
+            onPress={() => setIsDrawerOpen(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.drawerToggleIcon}>☰</Text>
+          </TouchableOpacity>
+
           <View style={styles.smallAvatar}>
             <Text style={{ fontSize: 16 }}>⚡</Text>
           </View>
-          <View>
-            <Text style={styles.headerTitle}>IRRON AI v3</Text>
+
+          <View style={styles.headerTitleBox}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {currentTitle}
+            </Text>
             <View style={styles.statusRow}>
               <View style={styles.onlineDot} />
               <Text style={styles.statusText}>100% Offline (Otak 3B)</Text>
@@ -577,10 +758,11 @@ function MainApp() {
         </View>
 
         <TouchableOpacity 
-          style={styles.cleanButton} 
-          onPress={() => setMessages([{ id: 'welcome', role: 'assistant', text: 'Chat dibersihkan. Mau ngobrol atau tanya kodingan apa lagi bro?' }])}
+          style={styles.newChatHeaderBtn} 
+          onPress={handleCreateNewSession}
+          activeOpacity={0.7}
         >
-          <Text style={styles.cleanButtonText}>Reset</Text>
+          <Text style={styles.newChatHeaderBtnText}>＋ Baru</Text>
         </TouchableOpacity>
       </View>
 
@@ -662,6 +844,143 @@ function MainApp() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* =================== SIDEBAR DRAWER RIWAYAT CHAT =================== */}
+      <Modal
+        visible={isDrawerOpen}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setIsDrawerOpen(false)}
+      >
+        <View style={styles.drawerBackdrop}>
+          <Pressable style={styles.drawerBackdropPressable} onPress={() => setIsDrawerOpen(false)} />
+          
+          <View style={styles.drawerContent}>
+            {/* Drawer Header */}
+            <View style={styles.drawerHeader}>
+              <View style={styles.drawerBrand}>
+                <View style={styles.smallAvatar}>
+                  <Text style={{ fontSize: 16 }}>⚡</Text>
+                </View>
+                <View>
+                  <Text style={styles.drawerBrandTitle}>IRRON AI v3</Text>
+                  <Text style={styles.drawerBrandSubtitle}>SQLite Offline History</Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.closeDrawerBtn} onPress={() => setIsDrawerOpen(false)}>
+                <Text style={styles.closeDrawerText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Tombol New Chat di Drawer */}
+            <TouchableOpacity 
+              style={styles.newChatDrawerBtn}
+              onPress={handleCreateNewSession}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.newChatDrawerPlus}>＋</Text>
+              <Text style={styles.newChatDrawerText}>Percakapan Baru</Text>
+            </TouchableOpacity>
+
+            {/* Section Header */}
+            <View style={styles.historySectionHeader}>
+              <Text style={styles.historySectionTitle}>RIWAYAT PERCAKAPAN</Text>
+              <Text style={styles.historyCountText}>{sessions.length} Chat</Text>
+            </View>
+
+            {/* List Sesi Obrolan */}
+            <FlatList
+              data={sessions}
+              keyExtractor={item => item.id}
+              style={styles.sessionsList}
+              renderItem={({ item }) => {
+                const isActive = item.id === activeSessionId;
+                return (
+                  <TouchableOpacity
+                    style={[styles.sessionCard, isActive && styles.sessionCardActive]}
+                    onPress={() => handleSelectSession(item.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.sessionCardLeft}>
+                      <Text style={styles.sessionIcon}>💬</Text>
+                      <View style={styles.sessionTextCol}>
+                        <Text 
+                          style={[styles.sessionTitleText, isActive && styles.sessionTitleTextActive]}
+                          numberOfLines={1}
+                        >
+                          {item.title}
+                        </Text>
+                        <Text style={styles.sessionDateText}>
+                          {formatTimestamp(item.updated_at || item.created_at)}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.sessionActionsRow}>
+                      <TouchableOpacity 
+                        style={styles.actionIconBtn} 
+                        onPress={() => handleStartRename(item)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.actionIconText}>✏️</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.actionIconBtn} 
+                        onPress={() => handleConfirmDeleteSession(item)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.actionIconText}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+
+            {/* Footer Drawer */}
+            <View style={styles.drawerFooter}>
+              <Text style={styles.drawerFooterText}>🔒 Tersimpan di SQLite Lokal HP Lo</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* =================== MODAL GANTI NAMA OBROLAN =================== */}
+      <Modal
+        visible={isRenameModalOpen}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setIsRenameModalOpen(false)}
+      >
+        <View style={styles.renameModalBackdrop}>
+          <View style={styles.renameCard}>
+            <Text style={styles.renameTitle}>Ganti Nama Obrolan</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={editTitleText}
+              onChangeText={setEditTitleText}
+              placeholder="Masukkan judul baru..."
+              placeholderTextColor="#64748b"
+              autoFocus={true}
+              selectTextOnFocus={true}
+            />
+            <View style={styles.renameBtnRow}>
+              <TouchableOpacity 
+                style={styles.renameCancelBtn} 
+                onPress={() => setIsRenameModalOpen(false)}
+              >
+                <Text style={styles.renameCancelText}>Batal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.renameSaveBtn} 
+                onPress={handleSaveRename}
+              >
+                <Text style={styles.renameSaveText}>Simpan</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -786,7 +1105,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#1e293b',
@@ -795,19 +1114,36 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  drawerToggleBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#1e293b',
+    marginRight: 10,
+  },
+  drawerToggleIcon: {
+    fontSize: 18,
+    color: '#38bdf8',
+    fontWeight: 'bold',
   },
   smallAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#0284c7',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
   },
+  headerTitleBox: {
+    flex: 1,
+  },
   headerTitle: {
     color: '#f8fafc',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   statusRow: {
@@ -827,16 +1163,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  cleanButton: {
-    backgroundColor: '#1e293b',
+  newChatHeaderBtn: {
+    backgroundColor: '#0284c7',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 7,
+    borderRadius: 10,
   },
-  cleanButtonText: {
-    color: '#94a3b8',
+  newChatHeaderBtnText: {
+    color: '#ffffff',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   modeRow: {
     flexDirection: 'row',
@@ -900,39 +1236,37 @@ const styles = StyleSheet.create({
   assistantText: {
     color: '#e2e8f0',
   },
-  boldText: {
-    fontWeight: '700',
-    color: '#f8fafc',
-  },
-  inlineCode: {
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    backgroundColor: '#1e293b',
-    color: '#38bdf8',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    fontSize: 13,
-  },
   placeholderText: {
     color: '#64748b',
     fontStyle: 'italic',
     fontSize: 14,
   },
-  // CODE BLOCK STYLING
+  boldText: {
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  inlineCode: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    backgroundColor: '#1e293b',
+    color: '#38bdf8',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    fontSize: 13,
+  },
   codeContainer: {
     marginVertical: 10,
     borderRadius: 12,
-    backgroundColor: '#030712',
+    backgroundColor: '#020617',
     borderWidth: 1,
     borderColor: '#1e293b',
     overflow: 'hidden',
-    width: '100%',
   },
   codeHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    backgroundColor: '#0b1120',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderBottomWidth: 1,
@@ -943,9 +1277,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   windowDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
     marginRight: 6,
   },
   codeLangText: {
@@ -953,7 +1287,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginLeft: 6,
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
   },
   copyBtn: {
     backgroundColor: '#1e293b',
@@ -962,52 +1296,49 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   copyBtnSuccess: {
-    backgroundColor: '#064e3b',
+    backgroundColor: '#065f46',
   },
   copyBtnText: {
-    color: '#38bdf8',
+    color: '#94a3b8',
     fontSize: 11,
     fontWeight: '600',
   },
   copyBtnTextSuccess: {
     color: '#34d399',
-    fontSize: 11,
-    fontWeight: '600',
   },
   codeScrollView: {
-    maxHeight: 320,
+    maxHeight: 300,
   },
   codeBodyText: {
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    color: '#38bdf8',
     fontSize: 13,
-    color: '#f8fafc',
     lineHeight: 20,
   },
   assistantFooter: {
     flexDirection: 'row',
-    alignItems: 'center',
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#1e293b',
+    borderTopColor: '#1f2937',
   },
   actionPill: {
     backgroundColor: '#1e293b',
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
     marginRight: 8,
   },
   actionPillText: {
     color: '#94a3b8',
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   messageImage: {
-    width: 240,
-    height: 160,
+    width: 220,
+    height: 150,
     borderRadius: 12,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   imagePreviewContainer: {
     flexDirection: 'row',
@@ -1024,25 +1355,25 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 8,
-    marginRight: 10,
   },
   imageInfo: {
     flex: 1,
+    marginLeft: 10,
   },
   imageAttachedText: {
-    color: '#38bdf8',
-    fontSize: 12,
-    fontWeight: '700',
+    color: '#f8fafc',
+    fontSize: 13,
+    fontWeight: '600',
   },
   imageSubText: {
     color: '#64748b',
     fontSize: 11,
   },
   removeImageBtn: {
-    padding: 6,
+    padding: 8,
   },
   removeImageText: {
-    color: '#ef4444',
+    color: '#94a3b8',
     fontSize: 16,
     fontWeight: 'bold',
   },
@@ -1051,45 +1382,269 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#0c101b',
+    backgroundColor: '#0b0f19',
     borderTopWidth: 1,
     borderTopColor: '#1e293b',
   },
   imageButton: {
-    width: 42,
-    height: 42,
+    padding: 8,
     borderRadius: 12,
     backgroundColor: '#1e293b',
+    marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    color: '#f8fafc',
+    backgroundColor: '#131b2e',
+    borderRadius: 18,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 14,
-    maxHeight: 100,
-    marginRight: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
+    color: '#f8fafc',
+    fontSize: 14.5,
+    maxHeight: 120,
+    borderWidth: 1,
+    borderColor: '#1e293b',
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#38bdf8',
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 8,
   },
   disabledSendButton: {
-    opacity: 0.3,
+    backgroundColor: '#1e293b',
   },
   sendButtonText: {
     color: '#020617',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+
+  // STYLES DRAWER
+  drawerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    flexDirection: 'row',
+  },
+  drawerBackdropPressable: {
+    flex: 1,
+  },
+  drawerContent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '82%',
+    backgroundColor: '#080d1a',
+    borderRightWidth: 1,
+    borderRightColor: '#1e293b',
+    paddingTop: Platform.OS === 'android' ? 36 : 48,
+    paddingHorizontal: 16,
+    display: 'flex',
+  },
+  drawerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e293b',
+  },
+  drawerBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  drawerBrandTitle: {
+    color: '#f8fafc',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  drawerBrandSubtitle: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  closeDrawerBtn: {
+    padding: 8,
+  },
+  closeDrawerText: {
+    color: '#94a3b8',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  newChatDrawerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0284c7',
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginVertical: 14,
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  newChatDrawerPlus: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginRight: 6,
+  },
+  newChatDrawerText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  historySectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  historySectionTitle: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  historyCountText: {
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  sessionsList: {
+    flex: 1,
+  },
+  sessionCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+  },
+  sessionCardActive: {
+    backgroundColor: '#132338',
+    borderColor: '#38bdf8',
+  },
+  sessionCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 6,
+  },
+  sessionIcon: {
+    fontSize: 16,
+    marginRight: 10,
+  },
+  sessionTextCol: {
+    flex: 1,
+  },
+  sessionTitleText: {
+    color: '#cbd5e1',
+    fontSize: 13.5,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  sessionTitleTextActive: {
+    color: '#38bdf8',
+    fontWeight: '700',
+  },
+  sessionDateText: {
+    color: '#64748b',
+    fontSize: 10.5,
+  },
+  sessionActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionIconBtn: {
+    padding: 6,
+    marginLeft: 4,
+  },
+  actionIconText: {
+    fontSize: 13,
+  },
+  drawerFooter: {
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#1e293b',
+    alignItems: 'center',
+  },
+  drawerFooterText: {
+    color: '#64748b',
+    fontSize: 11,
+  },
+
+  // STYLES MODAL RENAME
+  renameModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  renameCard: {
+    width: '100%',
+    backgroundColor: '#0f172a',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#38bdf8',
+  },
+  renameTitle: {
+    color: '#f8fafc',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 14,
+  },
+  renameInput: {
+    backgroundColor: '#020617',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    color: '#f8fafc',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    marginBottom: 18,
+  },
+  renameBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  renameCancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  renameCancelText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  renameSaveBtn: {
+    backgroundColor: '#38bdf8',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  renameSaveText: {
+    color: '#020617',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
 

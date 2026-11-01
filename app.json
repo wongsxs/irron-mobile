@@ -44,7 +44,8 @@
         }
       ],
       "expo-asset",
-      "./plugins/withCustomArch"
+      "./plugins/withCustomArch",
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {
