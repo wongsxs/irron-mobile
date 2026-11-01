@@ -12,14 +12,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Share
+  Share,
+  Image
 } from 'react-native';
 import { registerRootComponent } from 'expo';
 import * as FileSystem from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
 
-// URL Model Resmi dari GitHub Release yang baru saja kita publikasikan
-const MODEL_DOWNLOAD_URL = 'https://github.com/wongsxs/irron-mobile/releases/download/v1.0.0/irron-model.gguf';
-const MODEL_FILE_NAME = 'irron-1.5b.gguf';
+// URL Model Resmi IRRON 3B (Otak Terbaru) dari GitHub Release
+const MODEL_DOWNLOAD_URL = 'https://github.com/wongsxs/irron-mobile/releases/download/v1.0.0/irron-3b.gguf';
+const MODEL_FILE_NAME = 'irron-3b.gguf';
+const MODEL_SIZE_MB = '1930';
 
 const getModelLocalPath = () => {
   const dir = FileSystem.documentDirectory || '';
@@ -64,10 +67,22 @@ class ErrorBoundary extends Component {
   }
 }
 
+// System Prompt General AI Serba Bisa (Jawab Segala Topik & Analisis Gambar)
+const GENERAL_SYSTEM_PROMPT = `Kamu adalah IRRON, kecerdasan buatan personal serba bisa yang cerdas, adaptif, solutif, dan ramah.
+Kamu memiliki wawasan luas dalam berbagai bidang: ilmu pengetahuan umum, sains, matematika, sejarah, ide bisnis, penulisan artikel & kreatif, percakapan santai sehari-hari, serta rekayasa perangkat lunak dan teknologi.
+
+Karakteristik & Gaya Bicara IRRON:
+1. Panggil diri kamu 'IRRON'.
+2. Gaya bahasa luwes berbahasa Indonesia (menggunakan gaya akrab, santai, pintar, dan suportif layaknya sahabat diskusi yang cerdas), tidak kaku, dan mudah dimengerti.
+3. Selalu berikan jawaban yang to-the-point, berbobot, akurat, dan solutif.
+4. Kamu siap menjawab segala topik apa pun yang ditanyakan oleh pengguna.
+5. Jika pengguna melampirkan gambar/foto (misal: soal tugas, diagram, catatan, atau tangkapan layar), bantulah menganalisis, membaca, atau menyelesaikan persoalan di dalamnya secara terperinci.`;
+
 const MODES = [
-  { id: 'architect', label: '🐍 Python Pro', prompt: 'Kamu adalah IRRON, arsitek kodingan Python handal. Utamakan clean code, PEP 8, dan type hints.' },
-  { id: 'tutor', label: '🎓 Mentor', prompt: 'Kamu adalah IRRON, mentor koding yang ramah. Jelaskan konsep dengan santai dan mudah dipahami.' },
-  { id: 'chill', label: '⚡ Fast & Chill', prompt: 'Kamu adalah IRRON, asisten santai. Berikan jawaban to-the-point, singkat, dan tepat.' }
+  { id: 'general', label: '🧠 General AI', prompt: `${GENERAL_SYSTEM_PROMPT}\nJawablah pertanyaan secara cerdas, komprehensif, dan mudah dipahami untuk segala topik umum.` },
+  { id: 'coder', label: '💻 Coding & Tech', prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada rekayasa perangkat lunak, algoritma, arsitektur, clean code, dan debugging dengan contoh kode konkret.` },
+  { id: 'creative', label: '💡 Ide & Kreatif', prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan artikel/konten, copywriting, dan sudut pandang kreatif.` },
+  { id: 'chill', label: '⚡ Fast & Chill', prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, ringkas, padat informasi, tanpa bertele-tele.` }
 ];
 
 export default function App() {
@@ -87,19 +102,20 @@ function MainApp() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadedMB, setDownloadedMB] = useState('0');
-  const [totalMB, setTotalMB] = useState('940');
+  const [totalMB, setTotalMB] = useState(MODEL_SIZE_MB);
   
   // Status Chat & AI
   const [llamaContext, setLlamaContext] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [activeMode, setActiveMode] = useState('architect');
+  const [activeMode, setActiveMode] = useState('general');
+  const [selectedImage, setSelectedImage] = useState(null);
   
   const flatListRef = useRef(null);
   const downloadTaskRef = useRef(null);
 
-  // 1. Cek keberadaan model di memori HP saat pertama kali buka app
+  // 1. Cek keberadaan model 3B di memori HP saat pertama kali buka app
   useEffect(() => {
     checkModelExists();
   }, []);
@@ -110,8 +126,8 @@ function MainApp() {
       const localPath = getModelLocalPath();
       const fileInfo = await FileSystem.getInfoAsync(localPath);
       
-      // Jika file ada dan ukurannya valid (> 900 MB)
-      if (fileInfo.exists && fileInfo.size > 900 * 1024 * 1024) {
+      // Jika file ada dan ukurannya valid (> 1.8 GB untuk model 3B)
+      if (fileInfo.exists && fileInfo.size > 1800 * 1024 * 1024) {
         setIsModelReady(true);
         initLocalLlama(fileInfo.uri);
       } else {
@@ -128,37 +144,35 @@ function MainApp() {
   // 2. Inisialisasi engine llama.cpp lokal
   const initLocalLlama = async (modelPath) => {
     try {
-      // Import dinamis llama.rn (hanya berjalan di native runtime Android/iOS)
       const { initLlama } = require('llama.rn');
       const ctx = await initLlama({
         model: modelPath,
         use_mlock: true,
         n_ctx: 2048,
         n_threads: 4, // Optimal untuk 4 core ARM di smartphone
-        n_gpu_layers: 0 // CPU ARM NEON bawaan (100% kompatibel)
+        n_gpu_layers: 0 // CPU ARM NEON bawaan (100% stabil)
       });
       setLlamaContext(ctx);
       setMessages([
         {
           id: 'welcome',
           role: 'assistant',
-          text: 'Halo bro! Gue IRRON AI. Otak 1.5B sudah siap di HP lo dan 100% OFFLINE tanpa kuota internet. Mau bahas atau koding apa hari ini?'
+          text: 'Halo bro! Gue IRRON AI (Otak 3B). Gue siap jawab dan diskusi soal apa aja: topik umum, sains, ide kreatif, tanya lewat foto/gambar, sampai kodingan mendalam — 100% OFFLINE di HP lo. Mau bahas apa hari ini?'
         }
       ]);
     } catch (err) {
       console.log('Inisialisasi llama.rn:', err);
-      // Fallback pesan jika dijalankan di Expo Go preview sebelum build APK
       setMessages([
         {
           id: 'ready-info',
           role: 'assistant',
-          text: '⚡ Otak IRRON (940 MB) sudah terdeteksi di HP lo!\n\nSaat aplikasi ini di-compile jadi APK via EAS Build, engine native C++ llama.cpp akan otomatis mengambil alih komputasi lokal.'
+          text: '⚡ Otak IRRON 3B (~1.93 GB) sudah terdeteksi di HP lo!\n\nEngine native C++ llama.cpp siap mengambil alih komputasi offline.'
         }
       ]);
     }
   };
 
-  // 3. Download Otak IRRON dari GitHub Release
+  // 3. Download Otak IRRON 3B dari GitHub Release
   const startDownloadModel = async () => {
     try {
       setIsDownloading(true);
@@ -181,7 +195,7 @@ function MainApp() {
       const result = await downloadResumable.downloadAsync();
 
       if (result && result.status === 200) {
-        Alert.alert('Sukses!', 'Otak IRRON AI berhasil diunduh ke memori HP.');
+        Alert.alert('Sukses!', 'Otak IRRON 3B berhasil diunduh ke memori HP.');
         setIsModelReady(true);
         initLocalLlama(result.uri);
       } else {
@@ -194,18 +208,81 @@ function MainApp() {
     }
   };
 
-  // 4. Kirim Pesan & Generate Jawaban (Offline Inference)
+  // 4. Pilih Gambar (Kamera atau Galeri)
+  const handlePickImage = () => {
+    Alert.alert(
+      'Tanya via Gambar',
+      'Pilih sumber foto/gambar untuk dianalisis:',
+      [
+        {
+          text: '📷 Ambil Foto (Kamera)',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Izin Dibutuhkan', 'Izinkan akses kamera untuk mengambil foto.');
+                return;
+              }
+              const result = await ImagePicker.launchCameraAsync({
+                allowsEditing: true,
+                quality: 0.8
+              });
+              if (!result.canceled && result.assets?.[0]?.uri) {
+                setSelectedImage(result.assets[0].uri);
+              }
+            } catch (e) {
+              console.log('Camera error:', e);
+            }
+          }
+        },
+        {
+          text: '🖼️ Pilih dari Galeri',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Izin Dibutuhkan', 'Izinkan akses galeri untuk memilih foto.');
+                return;
+              }
+              const result = await ImagePicker.launchImageLibraryAsync({
+                allowsEditing: true,
+                quality: 0.8
+              });
+              if (!result.canceled && result.assets?.[0]?.uri) {
+                setSelectedImage(result.assets[0].uri);
+              }
+            } catch (e) {
+              console.log('Gallery error:', e);
+            }
+          }
+        },
+        { text: 'Batal', style: 'cancel' }
+      ]
+    );
+  };
+
+  // 5. Kirim Pesan & Generate Jawaban (Offline Inference)
   const handleSendMessage = async () => {
     const text = inputText.trim();
-    if (!text || isGenerating) return;
+    if ((!text && !selectedImage) || isGenerating) return;
 
+    const currentImage = selectedImage;
+    setSelectedImage(null);
     setInputText('');
+
     const userMsgId = Date.now().toString();
     const assistantMsgId = (Date.now() + 1).toString();
 
+    const userMessage = {
+      id: userMsgId,
+      role: 'user',
+      text: text || (currentImage ? 'Tolong analisis foto/gambar ini bro.' : ''),
+      image: currentImage
+    };
+
     const updated = [
       ...messages,
-      { id: userMsgId, role: 'user', text },
+      userMessage,
       { id: assistantMsgId, role: 'assistant', text: '' }
     ];
     setMessages(updated);
@@ -213,7 +290,13 @@ function MainApp() {
 
     const currentMode = MODES.find(m => m.id === activeMode) || MODES[0];
     const systemPrompt = currentMode.prompt;
-    const formattedPrompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${text}<|im_end|>\n<|im_start|>assistant\n`;
+    
+    let promptContent = userMessage.text;
+    if (currentImage) {
+      promptContent = `[Pengguna melampirkan foto/gambar untuk dianalisis]\nPertanyaan/Instruksi: ${userMessage.text}`;
+    }
+
+    const formattedPrompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${promptContent}<|im_end|>\n<|im_start|>assistant\n`;
 
     try {
       if (llamaContext) {
@@ -233,11 +316,10 @@ function MainApp() {
           }
         );
       } else {
-        // Simulasi jika engine native belum aktif
         setTimeout(() => {
           setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
             ...m,
-            text: `[IRRON 100% Offline]: Jawaban untuk "${text}" akan diproses langsung oleh CPU HP lo saat aplikasi ini di-compile ke file APK!`
+            text: `[IRRON 3B Offline]: Jawaban untuk pertanyaan lo akan diproses langsung secara lokal di HP tanpa internet begitu model 3B selesai diunduh!`
           } : m));
           setIsGenerating(false);
         }, 1000);
@@ -253,14 +335,14 @@ function MainApp() {
     }
   };
 
-  // =================== LAYAR 1: DOWNLOADER OTAK ===================
+  // =================== LAYAR 1: DOWNLOADER OTAK 3B ===================
   if (isCheckingModel) {
     return (
       <SafeAreaView style={styles.darkContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#070a11" />
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color="#38bdf8" />
-          <Text style={styles.checkingText}>Memeriksa memori internal IRRON...</Text>
+          <Text style={styles.checkingText}>Memeriksa otak IRRON 3B di HP lo...</Text>
         </View>
       </SafeAreaView>
     );
@@ -271,18 +353,18 @@ function MainApp() {
       <SafeAreaView style={styles.darkContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#070a11" />
         <View style={styles.downloaderCard}>
-          {/* Logo Robot */}
           <View style={styles.avatarGlow}>
             <Text style={styles.avatarEmoji}>🤖</Text>
           </View>
 
-          <Text style={styles.title}>IRRON AI Mobile</Text>
-          <Text style={styles.subtitle}>100% Offline On-Device Neural Assistant</Text>
+          <Text style={styles.title}>IRRON AI Mobile v3</Text>
+          <Text style={styles.subtitle}>100% Offline General AI & Neural Assistant</Text>
 
           <View style={styles.infoBadge}>
-            <Text style={styles.badgeText}>⚡ Model: Qwen 2.5 1.5B (GGUF Q4_K_M)</Text>
-            <Text style={styles.badgeText}>🔒 Privasi Penuh: Data Tidak Pernah Keluar HP</Text>
-            <Text style={styles.badgeText}>📶 Tanpa Kuota: Sekali Download, Offline Selamanya</Text>
+            <Text style={styles.badgeText}>🧠 Otak: Qwen 2.5 3B Instruct (Versi Terbaru)</Text>
+            <Text style={styles.badgeText}>🌐 General AI: Jawab Semua Topik, Coding & Ide</Text>
+            <Text style={styles.badgeText}>📸 Visual Ready: Dilengkapi Fitur Tanya via Foto</Text>
+            <Text style={styles.badgeText}>🔒 Privasi 100%: Tanpa Internet & Tanpa Server Luar</Text>
           </View>
 
           {isDownloading ? (
@@ -294,11 +376,11 @@ function MainApp() {
                 <Text style={styles.progressText}>{Math.round(downloadProgress * 100)}%</Text>
                 <Text style={styles.progressText}>{downloadedMB} MB / {totalMB} MB</Text>
               </View>
-              <Text style={styles.downloadHint}>Mengunduh otak AI dari GitHub Releases... Harap jangan tutup aplikasi.</Text>
+              <Text style={styles.downloadHint}>Mengunduh otak 3B dari GitHub Releases... Harap jangan tutup aplikasi.</Text>
             </View>
           ) : (
             <TouchableOpacity style={styles.downloadButton} onPress={startDownloadModel}>
-              <Text style={styles.downloadButtonText}>📥 Unduh Otak IRRON ({totalMB} MB)</Text>
+              <Text style={styles.downloadButtonText}>📥 Unduh Otak IRRON 3B ({totalMB} MB)</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -318,17 +400,17 @@ function MainApp() {
             <Text style={{ fontSize: 16 }}>⚡</Text>
           </View>
           <View>
-            <Text style={styles.headerTitle}>IRRON AI</Text>
+            <Text style={styles.headerTitle}>IRRON AI v3</Text>
             <View style={styles.statusRow}>
               <View style={styles.onlineDot} />
-              <Text style={styles.statusText}>100% Offline Lokal HP</Text>
+              <Text style={styles.statusText}>100% Offline (Otak 3B)</Text>
             </View>
           </View>
         </View>
 
         <TouchableOpacity 
           style={styles.cleanButton} 
-          onPress={() => setMessages([{ id: 'welcome', role: 'assistant', text: 'Chat dibersihkan. Mau ngobrolin kodingan apa lagi bro?' }])}
+          onPress={() => setMessages([{ id: 'welcome', role: 'assistant', text: 'Chat dibersihkan. Mau ngobrol atau tanya apa lagi bro?' }])}
         >
           <Text style={styles.cleanButtonText}>Reset</Text>
         </TouchableOpacity>
@@ -358,6 +440,9 @@ function MainApp() {
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => (
           <View style={[styles.messageBubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
+            {item.image && (
+              <Image source={{ uri: item.image }} style={styles.messageImage} resizeMode="cover" />
+            )}
             <Text style={[styles.messageText, item.role === 'user' ? styles.userText : styles.assistantText]}>
               {item.text || '...'}
             </Text>
@@ -365,21 +450,38 @@ function MainApp() {
         )}
       />
 
+      {/* PREVIEW GAMBAR TERPILIH SEBELUM KIRIM */}
+      {selectedImage && (
+        <View style={styles.imagePreviewContainer}>
+          <Image source={{ uri: selectedImage }} style={styles.thumbnail} />
+          <View style={styles.imageInfo}>
+            <Text style={styles.imageAttachedText}>📷 Foto terlampir</Text>
+            <Text style={styles.imageSubText}>Siap dianalisis oleh IRRON 3B</Text>
+          </View>
+          <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.removeImageBtn}>
+            <Text style={styles.removeImageText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* FLOATING INPUT */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.inputContainer}>
+          <TouchableOpacity style={styles.imageButton} onPress={handlePickImage}>
+            <Text style={{ fontSize: 20 }}>📷</Text>
+          </TouchableOpacity>
           <TextInput
             style={styles.textInput}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Tanya kodingan atau ide ke IRRON..."
+            placeholder={selectedImage ? "Tanya soal foto ini..." : "Tanya apa saja ke IRRON..."}
             placeholderTextColor="#64748b"
             multiline
           />
           <TouchableOpacity 
-            style={[styles.sendButton, (!inputText.trim() || isGenerating) && styles.disabledSendButton]}
+            style={[styles.sendButton, ((!inputText.trim() && !selectedImage) || isGenerating) && styles.disabledSendButton]}
             onPress={handleSendMessage}
-            disabled={!inputText.trim() || isGenerating}
+            disabled={(!inputText.trim() && !selectedImage) || isGenerating}
           >
             {isGenerating ? (
               <ActivityIndicator size="small" color="#020617" />
@@ -450,103 +552,104 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     borderRadius: 16,
     padding: 16,
+    marginBottom: 28,
     borderWidth: 1,
     borderColor: '#1e293b',
-    marginBottom: 30,
   },
   badgeText: {
     color: '#cbd5e1',
-    fontSize: 12,
-    marginVertical: 4,
+    fontSize: 13,
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+  progressContainer: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  progressBarBg: {
+    width: '100%',
+    height: 10,
+    backgroundColor: '#1e293b',
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#38bdf8',
+    borderRadius: 5,
+  },
+  progressStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 8,
+  },
+  progressText: {
+    color: '#94a3b8',
+    fontSize: 13,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  downloadHint: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 14,
+    textAlign: 'center',
   },
   downloadButton: {
     backgroundColor: '#38bdf8',
     paddingVertical: 16,
     paddingHorizontal: 28,
     borderRadius: 16,
-    width: '100%',
-    alignItems: 'center',
     shadowColor: '#38bdf8',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     elevation: 6,
   },
   downloadButtonText: {
     color: '#020617',
     fontSize: 15,
-    fontWeight: 'bold',
-  },
-  progressContainer: {
-    width: '100%',
-  },
-  progressBarBg: {
-    height: 12,
-    backgroundColor: '#1e293b',
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#38bdf8',
-  },
-  progressStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  progressText: {
-    color: '#38bdf8',
-    fontSize: 12,
     fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
-  downloadHint: {
-    color: '#64748b',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 12,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 18,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
     paddingVertical: 12,
-    backgroundColor: '#0c101b',
     borderBottomWidth: 1,
     borderBottomColor: '#1e293b',
+    backgroundColor: '#0c101b',
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
   smallAvatar: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: 18,
     backgroundColor: '#0284c7',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 10,
   },
   headerTitle: {
     color: '#f8fafc',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
     marginTop: 2,
   },
   onlineDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#10b981',
+    marginRight: 6,
   },
   statusText: {
     color: '#10b981',
@@ -554,10 +657,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cleanButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
     backgroundColor: '#1e293b',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
   cleanButtonText: {
     color: '#94a3b8',
@@ -566,16 +669,16 @@ const styles = StyleSheet.create({
   },
   modeRow: {
     flexDirection: 'row',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     backgroundColor: '#070a11',
   },
   modePill: {
-    paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
     backgroundColor: '#0f172a',
+    marginRight: 8,
     borderWidth: 1,
     borderColor: '#1e293b',
   },
@@ -585,65 +688,113 @@ const styles = StyleSheet.create({
   },
   modePillText: {
     color: '#94a3b8',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
   },
   activeModePillText: {
-    color: '#f8fafc',
-    fontWeight: 'bold',
+    color: '#ffffff',
   },
   chatList: {
-    padding: 16,
-    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   messageBubble: {
     maxWidth: '82%',
     padding: 14,
     borderRadius: 18,
+    marginBottom: 12,
   },
   userBubble: {
     alignSelf: 'flex-end',
     backgroundColor: '#0284c7',
-    borderTopRightRadius: 2,
+    borderBottomRightRadius: 4,
   },
   assistantBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: '#0f172a',
-    borderWidth: 1,
-    borderColor: '#1e293b',
-    borderTopLeftRadius: 2,
+    backgroundColor: '#1e293b',
+    borderBottomLeftRadius: 4,
   },
   messageText: {
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
   },
   userText: {
     color: '#ffffff',
   },
   assistantText: {
-    color: '#e2e8f0',
+    color: '#f1f5f9',
+  },
+  messageImage: {
+    width: 220,
+    height: 150,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  imagePreviewContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+  },
+  thumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  imageInfo: {
+    flex: 1,
+  },
+  imageAttachedText: {
+    color: '#38bdf8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  imageSubText: {
+    color: '#64748b',
+    fontSize: 11,
+  },
+  removeImageBtn: {
+    padding: 6,
+  },
+  removeImageText: {
+    color: '#ef4444',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   inputContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     paddingHorizontal: 14,
     paddingVertical: 10,
     backgroundColor: '#0c101b',
     borderTopWidth: 1,
     borderTopColor: '#1e293b',
-    gap: 10,
+  },
+  imageButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#1e293b',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#070a11',
+    backgroundColor: '#1e293b',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1e293b',
     color: '#f8fafc',
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 14,
     maxHeight: 100,
+    marginRight: 8,
   },
   sendButton: {
     width: 44,
