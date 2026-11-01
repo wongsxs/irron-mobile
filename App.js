@@ -92,7 +92,7 @@ function CodeBlock({ code, language }) {
           activeOpacity={0.7}
         >
           <Text style={[styles.copyBtnText, copied && styles.copyBtnTextSuccess]}>
-            {copied ? '✓ Disalin!' : '📋 Salin Kode'}
+            {copied ? '✓ Berhasil Disalin!' : '📋 Salin Kode'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -142,8 +142,15 @@ function FormattedText({ content, isUser }) {
 }
 
 // =================== KOMPONEN KONTEN PESAN ===================
-function MessageContent({ text, isUser, onCopyWhole, onShare }) {
-  if (!text) return <Text style={styles.placeholderText}>Mengetik...</Text>;
+function MessageContent({ text, isUser, isStreaming, onCopyWhole, onShare }) {
+  if (!text && isStreaming) {
+    return (
+      <View style={styles.typingContainer}>
+        <ActivityIndicator size="small" color="#38bdf8" />
+        <Text style={styles.typingText}>IRRON sedang berpikir...</Text>
+      </View>
+    );
+  }
 
   if (isUser) {
     return <Text style={[styles.messageText, styles.userText]}>{text}</Text>;
@@ -160,14 +167,22 @@ function MessageContent({ text, isUser, onCopyWhole, onShare }) {
         return <FormattedText key={idx} content={block.content} isUser={false} />;
       })}
 
-      <View style={styles.assistantFooter}>
-        <TouchableOpacity style={styles.actionPill} onPress={onCopyWhole}>
-          <Text style={styles.actionPillText}>📋 Salin Semua</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionPill} onPress={onShare}>
-          <Text style={styles.actionPillText}>↗ Bagikan</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Kursor berkedip saat sedang streaming jawaban */}
+      {isStreaming && (
+        <Text style={styles.blinkingCursor}>▍</Text>
+      )}
+
+      {/* Action Footer untuk Pesan AI */}
+      {!isStreaming && text.length > 0 && (
+        <View style={styles.assistantFooter}>
+          <TouchableOpacity style={styles.actionPill} onPress={onCopyWhole} activeOpacity={0.7}>
+            <Text style={styles.actionPillText}>📋 Salin</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionPill} onPress={onShare} activeOpacity={0.7}>
+            <Text style={styles.actionPillText}>↗ Bagikan</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -239,17 +254,40 @@ Karakteristik & Gaya Bicara IRRON:
 5. Jika pengguna melampirkan gambar/foto (misal: soal tugas, diagram, catatan, atau tangkapan layar), bantulah menganalisis, membaca, atau menyelesaikan persoalan di dalamnya secara terperinci.`;
 
 const MODES = [
-  { id: 'general', label: '🧠 General AI', prompt: `${GENERAL_SYSTEM_PROMPT}\nJawablah pertanyaan secara cerdas, komprehensif, dan mudah dipahami untuk segala topik umum.` },
-  { id: 'coder', label: '💻 Coding & Tech', prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada rekayasa perangkat lunak, algoritma, arsitektur, clean code, dan debugging dengan contoh kode konkret yang rapi berformat markdown.` },
-  { id: 'creative', label: '💡 Ide & Kreatif', prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan artikel/konten, copywriting, dan sudut pandang kreatif.` },
-  { id: 'chill', label: '⚡ Fast & Chill', prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, ringkas, padat informasi, tanpa bertele-tele.` }
+  { id: 'general', icon: '🧠', label: 'General AI', prompt: `${GENERAL_SYSTEM_PROMPT}\nJawablah pertanyaan secara cerdas, komprehensif, dan mudah dipahami untuk segala topik umum.` },
+  { id: 'coder', icon: '💻', label: 'Coding & Tech', prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada rekayasa perangkat lunak, algoritma, arsitektur, clean code, dan debugging dengan contoh kode konkret yang rapi berformat markdown.` },
+  { id: 'creative', icon: '💡', label: 'Ide & Kreatif', prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan artikel/konten, copywriting, dan sudut pandang kreatif.` },
+  { id: 'chill', icon: '⚡', label: 'Fast & Chill', prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, ringkas, padat informasi, tanpa bertele-tele.` }
 ];
 
-const DEFAULT_WELCOME_MESSAGE = {
-  id: 'welcome',
-  role: 'assistant',
-  text: 'Halo bro! Gue IRRON AI (Otak 3B). Gue siap jawab dan diskusi soal apa aja: topik umum, sains, ide kreatif, analisis foto 📷, sampai kodingan dengan syntax highlighting rapi — 100% OFFLINE di HP lo.\n\nRiwayat chat ini otomatis tersimpan di SQLite lokal HP lo. Mau bahas apa hari ini?'
-};
+// 4 Kartu Inspirasi Prompt untuk Tampilan Kosong (Hero Dashboard)
+const QUICK_PROMPTS = [
+  {
+    icon: '💻',
+    category: 'Koding & Tech',
+    title: 'Buat API REST Python',
+    prompt: 'Buatkan contoh REST API CRUD sederhana dengan Python FastAPI dan SQLite lengkap dengan komentar penjelas.'
+  },
+  {
+    icon: '💡',
+    category: 'Ide Bisnis',
+    title: 'Ide Usaha Modal Ringan',
+    prompt: 'Bantu berikan 3 ide bisnis digital yang realistis dan potensial dijalankan tahun 2026 dengan modal minim.'
+  },
+  {
+    icon: '🧠',
+    category: 'Sains & Teknologi',
+    title: 'Penjelasan Quantum Computing',
+    prompt: 'Jelaskan bagaimana komputer kuantum bekerja dan apa bedanya dengan komputer biasa secara sederhana.'
+  },
+  {
+    icon: '📸',
+    category: 'Tanya via Gambar',
+    title: 'Analisis Soal / Kodingan',
+    isImageAction: true,
+    prompt: 'Lampirkan foto tugas atau screenshot kodingan'
+  }
+];
 
 export default function App() {
   return (
@@ -274,20 +312,22 @@ function MainApp() {
   const [llamaContext, setLlamaContext] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
-  const [messages, setMessages] = useState([DEFAULT_WELCOME_MESSAGE]);
+  const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeMode, setActiveMode] = useState('general');
   const [selectedImage, setSelectedImage] = useState(null);
 
-  // Status Drawer & Rename Modal
+  // Status Drawer, Search & Rename Modal
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [searchDrawerQuery, setSearchDrawerQuery] = useState('');
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [editingSession, setEditingSession] = useState(null);
   const [editTitleText, setEditTitleText] = useState('');
   
   const flatListRef = useRef(null);
   const downloadTaskRef = useRef(null);
+  const shouldStopRef = useRef(false);
 
   // Inisialisasi Database SQLite & Sesi saat aplikasi terbuka
   useEffect(() => {
@@ -307,7 +347,7 @@ function MainApp() {
         const initial = db.createNewSession('Obrolan Baru');
         setSessions([initial]);
         setActiveSessionId(initial.id);
-        setMessages([DEFAULT_WELCOME_MESSAGE]);
+        setMessages([]);
       }
     } catch (e) {
       console.log('Database init error:', e);
@@ -317,11 +357,7 @@ function MainApp() {
   const loadSessionMessages = (sessionId) => {
     try {
       const dbMsgs = db.getMessagesForSession(sessionId);
-      if (dbMsgs && dbMsgs.length > 0) {
-        setMessages(dbMsgs);
-      } else {
-        setMessages([DEFAULT_WELCOME_MESSAGE]);
-      }
+      setMessages(dbMsgs || []);
     } catch (e) {
       console.log('Load messages error:', e);
     }
@@ -344,7 +380,7 @@ function MainApp() {
       const newSession = db.createNewSession('Obrolan Baru');
       setSessions(prev => [newSession, ...prev]);
       setActiveSessionId(newSession.id);
-      setMessages([DEFAULT_WELCOME_MESSAGE]);
+      setMessages([]);
       setIsDrawerOpen(false);
     } catch (e) {
       console.log('Create session error:', e);
@@ -386,7 +422,7 @@ function MainApp() {
               const fresh = db.createNewSession('Obrolan Baru');
               setSessions([fresh]);
               setActiveSessionId(fresh.id);
-              setMessages([DEFAULT_WELCOME_MESSAGE]);
+              setMessages([]);
             } else {
               setSessions(remaining);
               if (session.id === activeSessionId) {
@@ -549,10 +585,28 @@ function MainApp() {
     }
   };
 
+  // Hentikan proses generasi jawaban
+  const handleStopGeneration = () => {
+    shouldStopRef.current = true;
+    setIsGenerating(false);
+  };
+
+  // Eksekusi prompt dari Kartu Cepat
+  const handleQuickPromptClick = (card) => {
+    if (card.isImageAction) {
+      handlePickImage();
+    } else {
+      setInputText(card.prompt);
+    }
+  };
+
   // Kirim Pesan & Generate Jawaban (Offline Inference)
-  const handleSendMessage = async () => {
-    const text = inputText.trim();
+  const handleSendMessage = async (customText = null) => {
+    const rawText = customText !== null ? customText : inputText;
+    const text = rawText.trim();
     if ((!text && !selectedImage) || isGenerating) return;
+
+    shouldStopRef.current = false;
 
     let targetSessionId = activeSessionId;
     if (!targetSessionId) {
@@ -590,7 +644,7 @@ function MainApp() {
     db.saveMessage(targetSessionId, userMessage);
 
     const updated = [
-      ...messages.filter(m => m.id !== 'welcome'),
+      ...messages,
       userMessage,
       { id: assistantMsgId, role: 'assistant', text: '', createdAt: Date.now() }
     ];
@@ -618,6 +672,7 @@ function MainApp() {
             stop: ['<|im_end|>', '<|im_start|>', 'user:']
           },
           (data) => {
+            if (shouldStopRef.current) return;
             if (data?.token) {
               streamText += data.token;
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: streamText } : m));
@@ -634,7 +689,8 @@ function MainApp() {
         });
       } else {
         setTimeout(() => {
-          const fallbackText = `[IRRON 3B Offline]: Jawaban untuk pertanyaan lo akan diproses langsung secara lokal di HP tanpa internet begitu model 3B selesai diunduh!\n\nContoh kodingan:\n\`\`\`python\n# Contoh Code Block IRRON\ndef sapa(nama: str) -> str:\n    return f"Halo {nama}, selamat datang di IRRON AI!"\n\nprint(sapa("Bro"))\n\`\`\``;
+          if (shouldStopRef.current) return;
+          const fallbackText = `[IRRON 3B Offline]: Halo bro! Jawaban untuk pertanyaan lo akan diproses secara native langsung di HP tanpa internet begitu model 3B selesai diunduh!\n\nContoh kodingan:\n\`\`\`python\n# Contoh Code Block IRRON\ndef salam(nama: str) -> str:\n    return f"Halo {nama}, selamat datang di IRRON AI!"\n\nprint(salam("Bro"))\n\`\`\``;
           
           setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
             ...m,
@@ -648,7 +704,7 @@ function MainApp() {
             createdAt: Date.now()
           });
           setIsGenerating(false);
-        }, 1000);
+        }, 800);
         return;
       }
     } catch (err) {
@@ -671,14 +727,22 @@ function MainApp() {
   const currentSessionObj = sessions.find(s => s.id === activeSessionId);
   const currentTitle = currentSessionObj ? currentSessionObj.title : 'IRRON AI';
 
+  // Filter daftar sesi di drawer berdasarkan pencarian
+  const filteredSessions = sessions.filter(s => 
+    s.title.toLowerCase().includes(searchDrawerQuery.toLowerCase().trim())
+  );
+
   // =================== LAYAR 1: DOWNLOADER OTAK 3B ===================
   if (isCheckingModel) {
     return (
       <SafeAreaView style={styles.darkContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#070a11" />
         <View style={styles.centerBox}>
-          <ActivityIndicator size="large" color="#38bdf8" />
-          <Text style={styles.checkingText}>Memeriksa otak IRRON 3B di HP lo...</Text>
+          <View style={styles.avatarGlowSmall}>
+            <Text style={{ fontSize: 32 }}>⚡</Text>
+          </View>
+          <ActivityIndicator size="large" color="#38bdf8" style={{ marginTop: 20 }} />
+          <Text style={styles.checkingText}>Memeriksa engine IRRON 3B di HP lo...</Text>
         </View>
       </SafeAreaView>
     );
@@ -697,9 +761,9 @@ function MainApp() {
           <Text style={styles.subtitle}>100% Offline General AI & Neural Assistant</Text>
 
           <View style={styles.infoBadge}>
-            <Text style={styles.badgeText}>🧠 Otak: Qwen 2.5 3B Instruct (Versi Terbaru)</Text>
-            <Text style={styles.badgeText}>🌐 General AI: Jawab Semua Topik, Coding & Ide</Text>
-            <Text style={styles.badgeText}>📸 Visual Ready: Dilengkapi Fitur Tanya via Foto</Text>
+            <Text style={styles.badgeText}>🧠 Otak: Qwen 2.5 3B Instruct (Versi Flagship)</Text>
+            <Text style={styles.badgeText}>🌐 General AI: Jawab Semua Topik, Coding & Ide Bisnis</Text>
+            <Text style={styles.badgeText}>📸 Visual Ready: Fitur Analisis Gambar & Soal</Text>
             <Text style={styles.badgeText}>⚡ Markdown & Code Block: Salin Kode Satu-Klik</Text>
             <Text style={styles.badgeText}>🗂️ Riwayat SQLite: Chat Tersimpan Permanen di HP</Text>
             <Text style={styles.badgeText}>🔒 Privasi 100%: Tanpa Internet & Tanpa Server Luar</Text>
@@ -717,7 +781,7 @@ function MainApp() {
               <Text style={styles.downloadHint}>Mengunduh otak 3B dari GitHub Releases... Harap jangan tutup aplikasi.</Text>
             </View>
           ) : (
-            <TouchableOpacity style={styles.downloadButton} onPress={startDownloadModel}>
+            <TouchableOpacity style={styles.downloadButton} onPress={startDownloadModel} activeOpacity={0.85}>
               <Text style={styles.downloadButtonText}>📥 Unduh Otak IRRON 3B ({totalMB} MB)</Text>
             </TouchableOpacity>
           )}
@@ -729,9 +793,9 @@ function MainApp() {
   // =================== LAYAR 2: CHAT OFFLINE + DRAWER ===================
   return (
     <SafeAreaView style={styles.darkContainer}>
-      <StatusBar barStyle="light-content" backgroundColor="#0c101b" />
+      <StatusBar barStyle="light-content" backgroundColor="#090d18" />
 
-      {/* HEADER BAR DENGAN TOMBOL DRAWER & NEW CHAT */}
+      {/* HEADER BAR FUTURISTIK */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity 
@@ -742,8 +806,11 @@ function MainApp() {
             <Text style={styles.drawerToggleIcon}>☰</Text>
           </TouchableOpacity>
 
-          <View style={styles.smallAvatar}>
-            <Text style={{ fontSize: 16 }}>⚡</Text>
+          <View style={styles.headerAvatarContainer}>
+            <View style={styles.smallAvatar}>
+              <Text style={{ fontSize: 16 }}>⚡</Text>
+            </View>
+            <View style={styles.avatarOnlinePulse} />
           </View>
 
           <View style={styles.headerTitleBox}>
@@ -766,82 +833,163 @@ function MainApp() {
         </TouchableOpacity>
       </View>
 
-      {/* MODE PILLS */}
-      <View style={styles.modeRow}>
-        {MODES.map(m => (
-          <TouchableOpacity
-            key={m.id}
-            onPress={() => setActiveMode(m.id)}
-            style={[styles.modePill, activeMode === m.id && styles.activeModePill]}
-          >
-            <Text style={[styles.modePillText, activeMode === m.id && styles.activeModePillText]}>
-              {m.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* MODE PILLS DENGAN ACTIVE GLOW */}
+      <View style={styles.modeContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modeScrollContent}>
+          {MODES.map(m => {
+            const isActive = activeMode === m.id;
+            return (
+              <TouchableOpacity
+                key={m.id}
+                onPress={() => setActiveMode(m.id)}
+                style={[styles.modePill, isActive && styles.activeModePill]}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.modePillIcon}>{m.icon}</Text>
+                <Text style={[styles.modePillText, isActive && styles.activeModePillText]}>
+                  {m.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
-      {/* DAFTAR CHAT */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.chatList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        renderItem={({ item }) => (
-          <View style={[styles.messageBubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-            {item.image && (
-              <Image source={{ uri: item.image }} style={styles.messageImage} resizeMode="cover" />
-            )}
-            <MessageContent 
-              text={item.text} 
-              isUser={item.role === 'user'} 
-              onCopyWhole={() => handleCopyWholeMessage(item.text)}
-              onShare={() => handleShareMessage(item.text)}
-            />
+      {/* AREA UTAMA: HERO DASHBOARD (JIKA CHAT KOSONG) ATAU DAFTAR CHAT */}
+      {messages.length === 0 ? (
+        <ScrollView contentContainerStyle={styles.emptyHeroContainer} showsVerticalScrollIndicator={false}>
+          <View style={styles.heroAvatarBox}>
+            <View style={styles.heroAvatarGlow}>
+              <Text style={{ fontSize: 38 }}>⚡</Text>
+            </View>
+            <View style={styles.heroBadge}>
+              <Text style={styles.heroBadgeText}>● 3B NEURAL ENGINE OFFLINE</Text>
+            </View>
           </View>
-        )}
-      />
+
+          <Text style={styles.heroTitle}>IRRON AI</Text>
+          <Text style={styles.heroSubtitle}>
+            Kecerdasan buatan personal serba bisa. Diskusi, kodingan, ide bisnis, dan analisis foto tanpa internet.
+          </Text>
+
+          {/* KARTU PROMPT CEPAT */}
+          <View style={styles.quickPromptsGrid}>
+            {QUICK_PROMPTS.map((card, idx) => (
+              <TouchableOpacity 
+                key={idx} 
+                style={styles.promptCard} 
+                onPress={() => handleQuickPromptClick(card)}
+                activeOpacity={0.75}
+              >
+                <View style={styles.promptCardHeader}>
+                  <Text style={styles.promptCardIcon}>{card.icon}</Text>
+                  <Text style={styles.promptCardCategory}>{card.category}</Text>
+                </View>
+                <Text style={styles.promptCardTitle}>{card.title}</Text>
+                <Text style={styles.promptCardSnippet} numberOfLines={2}>
+                  {card.prompt}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.chatList}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          renderItem={({ item, index }) => {
+            const isUser = item.role === 'user';
+            const isLastMessage = index === messages.length - 1;
+            const isThisStreaming = !isUser && isGenerating && isLastMessage;
+
+            return (
+              <View style={[styles.messageBubbleWrapper, isUser ? styles.userBubbleWrapper : styles.assistantBubbleWrapper]}>
+                {!isUser && (
+                  <View style={styles.assistantAvatarTag}>
+                    <Text style={{ fontSize: 13 }}>⚡</Text>
+                    <Text style={styles.assistantTagText}>IRRON 3B</Text>
+                  </View>
+                )}
+
+                <View style={[styles.messageBubble, isUser ? styles.userBubble : styles.assistantBubble]}>
+                  {item.image && (
+                    <Image source={{ uri: item.image }} style={styles.messageImage} resizeMode="cover" />
+                  )}
+                  <MessageContent 
+                    text={item.text} 
+                    isUser={isUser}
+                    isStreaming={isThisStreaming}
+                    onCopyWhole={() => handleCopyWholeMessage(item.text)}
+                    onShare={() => handleShareMessage(item.text)}
+                  />
+                </View>
+
+                {item.createdAt && (
+                  <Text style={[styles.messageTimeText, isUser ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
+                    {formatTimestamp(item.createdAt)}
+                  </Text>
+                )}
+              </View>
+            );
+          }}
+        />
+      )}
 
       {/* PREVIEW GAMBAR TERPILIH SEBELUM KIRIM */}
       {selectedImage && (
         <View style={styles.imagePreviewContainer}>
           <Image source={{ uri: selectedImage }} style={styles.thumbnail} />
           <View style={styles.imageInfo}>
-            <Text style={styles.imageAttachedText}>📷 Foto terlampir</Text>
-            <Text style={styles.imageSubText}>Siap dianalisis oleh IRRON 3B</Text>
+            <Text style={styles.imageAttachedText}>📷 Foto Siap Dianalisis</Text>
+            <Text style={styles.imageSubText}>Tekan tombol kirim untuk memproses via IRRON</Text>
           </View>
-          <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.removeImageBtn}>
+          <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.removeImageBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={styles.removeImageText}>✕</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* FLOATING INPUT */}
+      {/* FLOATING CYBER INPUT DOCK */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.inputContainer}>
-          <TouchableOpacity style={styles.imageButton} onPress={handlePickImage}>
-            <Text style={{ fontSize: 20 }}>📷</Text>
+        <View style={styles.inputDock}>
+          <TouchableOpacity 
+            style={[styles.imageButton, selectedImage && styles.imageButtonActive]} 
+            onPress={handlePickImage}
+            activeOpacity={0.7}
+          >
+            <Text style={{ fontSize: 19 }}>📷</Text>
           </TouchableOpacity>
+
           <TextInput
             style={styles.textInput}
             value={inputText}
             onChangeText={setInputText}
-            placeholder={selectedImage ? "Tanya soal foto ini..." : "Tanya apa saja atau minta kode..."}
+            placeholder={selectedImage ? "Tanya soal foto ini..." : "Tanya apa saja atau minta kode program..."}
             placeholderTextColor="#64748b"
             multiline
           />
-          <TouchableOpacity 
-            style={[styles.sendButton, ((!inputText.trim() && !selectedImage) || isGenerating) && styles.disabledSendButton]}
-            onPress={handleSendMessage}
-            disabled={(!inputText.trim() && !selectedImage) || isGenerating}
-          >
-            {isGenerating ? (
-              <ActivityIndicator size="small" color="#020617" />
-            ) : (
+
+          {isGenerating ? (
+            <TouchableOpacity 
+              style={styles.stopButton} 
+              onPress={handleStopGeneration}
+              activeOpacity={0.8}
+            >
+              <View style={styles.stopIconSquare} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity 
+              style={[styles.sendButton, (!inputText.trim() && !selectedImage) && styles.disabledSendButton]}
+              onPress={() => handleSendMessage()}
+              disabled={!inputText.trim() && !selectedImage}
+              activeOpacity={0.8}
+            >
               <Text style={styles.sendButtonText}>➔</Text>
-            )}
-          </TouchableOpacity>
+            </TouchableOpacity>
+          )}
         </View>
       </KeyboardAvoidingView>
 
@@ -882,60 +1030,86 @@ function MainApp() {
               <Text style={styles.newChatDrawerText}>Percakapan Baru</Text>
             </TouchableOpacity>
 
+            {/* Input Pencarian Obrolan */}
+            <View style={styles.searchBarContainer}>
+              <Text style={styles.searchIcon}>🔍</Text>
+              <TextInput
+                style={styles.searchBarInput}
+                value={searchDrawerQuery}
+                onChangeText={setSearchDrawerQuery}
+                placeholder="Cari obrolan..."
+                placeholderTextColor="#64748b"
+              />
+              {searchDrawerQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchDrawerQuery('')}>
+                  <Text style={{ color: '#94a3b8', fontSize: 13, paddingHorizontal: 6 }}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             {/* Section Header */}
             <View style={styles.historySectionHeader}>
               <Text style={styles.historySectionTitle}>RIWAYAT PERCAKAPAN</Text>
-              <Text style={styles.historyCountText}>{sessions.length} Chat</Text>
+              <Text style={styles.historyCountText}>{filteredSessions.length} Obrolan</Text>
             </View>
 
             {/* List Sesi Obrolan */}
-            <FlatList
-              data={sessions}
-              keyExtractor={item => item.id}
-              style={styles.sessionsList}
-              renderItem={({ item }) => {
-                const isActive = item.id === activeSessionId;
-                return (
-                  <TouchableOpacity
-                    style={[styles.sessionCard, isActive && styles.sessionCardActive]}
-                    onPress={() => handleSelectSession(item.id)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.sessionCardLeft}>
-                      <Text style={styles.sessionIcon}>💬</Text>
-                      <View style={styles.sessionTextCol}>
-                        <Text 
-                          style={[styles.sessionTitleText, isActive && styles.sessionTitleTextActive]}
-                          numberOfLines={1}
-                        >
-                          {item.title}
-                        </Text>
-                        <Text style={styles.sessionDateText}>
-                          {formatTimestamp(item.updated_at || item.created_at)}
-                        </Text>
+            {filteredSessions.length === 0 ? (
+              <View style={styles.emptySessionView}>
+                <Text style={styles.emptySessionText}>
+                  {searchDrawerQuery.trim() ? 'Tidak ada obrolan yang cocok' : 'Belum ada obrolan. Buat obrolan baru!'}
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={filteredSessions}
+                keyExtractor={item => item.id}
+                style={styles.sessionsList}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => {
+                  const isActive = item.id === activeSessionId;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.sessionCard, isActive && styles.sessionCardActive]}
+                      onPress={() => handleSelectSession(item.id)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.sessionCardLeft}>
+                        <Text style={styles.sessionIcon}>💬</Text>
+                        <View style={styles.sessionTextCol}>
+                          <Text 
+                            style={[styles.sessionTitleText, isActive && styles.sessionTitleTextActive]}
+                            numberOfLines={1}
+                          >
+                            {item.title}
+                          </Text>
+                          <Text style={styles.sessionDateText}>
+                            {formatTimestamp(item.updated_at || item.created_at)}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
 
-                    <View style={styles.sessionActionsRow}>
-                      <TouchableOpacity 
-                        style={styles.actionIconBtn} 
-                        onPress={() => handleStartRename(item)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Text style={styles.actionIconText}>✏️</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={styles.actionIconBtn} 
-                        onPress={() => handleConfirmDeleteSession(item)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Text style={styles.actionIconText}>🗑️</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-            />
+                      <View style={styles.sessionActionsRow}>
+                        <TouchableOpacity 
+                          style={styles.actionIconBtn} 
+                          onPress={() => handleStartRename(item)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={styles.actionIconText}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={styles.actionIconBtn} 
+                          onPress={() => handleConfirmDeleteSession(item)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={styles.actionIconText}>🗑️</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            )}
 
             {/* Footer Drawer */}
             <View style={styles.drawerFooter}>
@@ -1006,6 +1180,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 28,
+  },
+  avatarGlowSmall: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#0284c7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
   },
   avatarGlow: {
     width: 90,
@@ -1101,6 +1288,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+
+  // HEADER STYLES
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1109,7 +1298,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#1e293b',
-    backgroundColor: '#0c101b',
+    backgroundColor: '#090d18',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1118,25 +1307,43 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   drawerToggleBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#1e293b',
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#1e293b',
   },
   drawerToggleIcon: {
     fontSize: 18,
     color: '#38bdf8',
     fontWeight: 'bold',
   },
+  headerAvatarContainer: {
+    position: 'relative',
+    marginRight: 10,
+  },
   smallAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#0284c7',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+  },
+  avatarOnlinePulse: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#10b981',
+    borderWidth: 2,
+    borderColor: '#090d18',
   },
   headerTitleBox: {
     flex: 1,
@@ -1168,20 +1375,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#38bdf8',
   },
   newChatHeaderBtnText: {
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
   },
-  modeRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+
+  // MODE PILLS
+  modeContainer: {
     backgroundColor: '#070a11',
+    borderBottomWidth: 1,
+    borderBottomColor: '#121826',
+    paddingVertical: 8,
+  },
+  modeScrollContent: {
+    paddingHorizontal: 16,
   },
   modePill: {
-    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 20,
     backgroundColor: '#0f172a',
@@ -1192,6 +1408,15 @@ const styles = StyleSheet.create({
   activeModePill: {
     backgroundColor: '#0284c7',
     borderColor: '#38bdf8',
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  modePillIcon: {
+    fontSize: 13,
+    marginRight: 6,
   },
   modePillText: {
     color: '#94a3b8',
@@ -1200,28 +1425,155 @@ const styles = StyleSheet.create({
   },
   activeModePillText: {
     color: '#ffffff',
+    fontWeight: '700',
   },
+
+  // HERO DASHBOARD (EMPTY STATE)
+  emptyHeroContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 36,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  heroAvatarBox: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  heroAvatarGlow: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: '#0284c7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 8,
+    marginBottom: 12,
+  },
+  heroBadge: {
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#0284c7',
+  },
+  heroBadgeText: {
+    color: '#38bdf8',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#f8fafc',
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    fontSize: 13,
+    color: '#94a3b8',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 28,
+    paddingHorizontal: 16,
+  },
+  quickPromptsGrid: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  promptCard: {
+    width: '48%',
+    backgroundColor: '#0c1322',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+  },
+  promptCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  promptCardIcon: {
+    fontSize: 15,
+    marginRight: 6,
+  },
+  promptCardCategory: {
+    color: '#38bdf8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  promptCardTitle: {
+    color: '#f8fafc',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  promptCardSnippet: {
+    color: '#64748b',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+
+  // CHAT BUBBLES
   chatList: {
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
+  },
+  messageBubbleWrapper: {
+    marginBottom: 18,
+    maxWidth: '92%',
+  },
+  userBubbleWrapper: {
+    alignSelf: 'flex-end',
+  },
+  assistantBubbleWrapper: {
+    alignSelf: 'flex-start',
+  },
+  assistantAvatarTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+    marginLeft: 4,
+  },
+  assistantTagText: {
+    color: '#38bdf8',
+    fontSize: 11,
+    fontWeight: '700',
+    marginLeft: 4,
+    letterSpacing: 0.3,
   },
   messageBubble: {
-    maxWidth: '92%',
     padding: 14,
     borderRadius: 18,
-    marginBottom: 14,
   },
   userBubble: {
-    alignSelf: 'flex-end',
     backgroundColor: '#0284c7',
     borderBottomRightRadius: 4,
+    shadowColor: '#0284c7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
   },
   assistantBubble: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#111827',
+    backgroundColor: '#0c1424',
     borderBottomLeftRadius: 4,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: '#1e2b45',
+  },
+  messageTimeText: {
+    color: '#475569',
+    fontSize: 10,
+    marginTop: 4,
+    marginHorizontal: 4,
   },
   messageContentWrapper: {
     width: '100%',
@@ -1236,10 +1588,21 @@ const styles = StyleSheet.create({
   assistantText: {
     color: '#e2e8f0',
   },
-  placeholderText: {
-    color: '#64748b',
+  blinkingCursor: {
+    color: '#38bdf8',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  typingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  typingText: {
+    color: '#94a3b8',
+    fontSize: 13,
     fontStyle: 'italic',
-    fontSize: 14,
+    marginLeft: 8,
   },
   boldText: {
     fontWeight: '700',
@@ -1247,17 +1610,19 @@ const styles = StyleSheet.create({
   },
   inlineCode: {
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#172033',
     color: '#38bdf8',
     borderRadius: 4,
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     paddingVertical: 1,
     fontSize: 13,
   },
+
+  // CODE BLOCK IDE
   codeContainer: {
     marginVertical: 10,
     borderRadius: 12,
-    backgroundColor: '#020617',
+    backgroundColor: '#030712',
     borderWidth: 1,
     borderColor: '#1e293b',
     overflow: 'hidden',
@@ -1266,7 +1631,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#0b1120',
+    backgroundColor: '#090f1d',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderBottomWidth: 1,
@@ -1307,7 +1672,7 @@ const styles = StyleSheet.create({
     color: '#34d399',
   },
   codeScrollView: {
-    maxHeight: 300,
+    maxHeight: 320,
   },
   codeBodyText: {
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
@@ -1315,19 +1680,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
+
+  // ACTION FOOTER PESAN AI
   assistantFooter: {
     flexDirection: 'row',
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#1f2937',
+    borderTopColor: '#19243a',
   },
   actionPill: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#151f33',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
     marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#1e293b',
   },
   actionPillText: {
     color: '#94a3b8',
@@ -1340,16 +1709,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 8,
   },
+
+  // PREVIEW GAMBAR SEBELUM KIRIM
   imagePreviewContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0c1322',
     marginHorizontal: 16,
     marginBottom: 8,
     padding: 8,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1e293b',
+    borderColor: '#0284c7',
   },
   thumbnail: {
     width: 44,
@@ -1377,26 +1748,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  inputContainer: {
+
+  // FLOATING CYBER INPUT DOCK
+  inputDock: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#0b0f19',
+    backgroundColor: '#080d1a',
     borderTopWidth: 1,
     borderTopColor: '#1e293b',
   },
   imageButton: {
-    padding: 8,
+    padding: 9,
     borderRadius: 12,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#111827',
     marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+  },
+  imageButtonActive: {
+    backgroundColor: '#0284c7',
+    borderColor: '#38bdf8',
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#131b2e',
+    backgroundColor: '#0f172a',
     borderRadius: 18,
     paddingHorizontal: 16,
     paddingTop: 10,
@@ -1415,20 +1794,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 3,
   },
   disabledSendButton: {
     backgroundColor: '#1e293b',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   sendButtonText: {
     color: '#020617',
     fontSize: 18,
     fontWeight: 'bold',
   },
+  stopButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  stopIconSquare: {
+    width: 14,
+    height: 14,
+    backgroundColor: '#ffffff',
+    borderRadius: 2,
+  },
 
   // STYLES DRAWER
   drawerBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     flexDirection: 'row',
   },
   drawerBackdropPressable: {
@@ -1484,7 +1885,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#0284c7',
     borderRadius: 12,
     paddingVertical: 12,
-    marginVertical: 14,
+    marginTop: 14,
+    marginBottom: 10,
     shadowColor: '#38bdf8',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -1501,6 +1903,27 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '700',
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+  },
+  searchIcon: {
+    fontSize: 13,
+    marginRight: 6,
+  },
+  searchBarInput: {
+    flex: 1,
+    color: '#f8fafc',
+    fontSize: 13,
+    padding: 0,
   },
   historySectionHeader: {
     flexDirection: 'row',
@@ -1520,6 +1943,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
+  emptySessionView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  emptySessionText: {
+    color: '#64748b',
+    fontSize: 12,
+    textAlign: 'center',
+  },
   sessionsList: {
     flex: 1,
   },
@@ -1527,7 +1961,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0c1322',
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
@@ -1535,7 +1969,7 @@ const styles = StyleSheet.create({
     borderColor: '#1e293b',
   },
   sessionCardActive: {
-    backgroundColor: '#132338',
+    backgroundColor: '#122238',
     borderColor: '#38bdf8',
   },
   sessionCardLeft: {
@@ -1597,7 +2031,7 @@ const styles = StyleSheet.create({
   },
   renameCard: {
     width: '100%',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0c1322',
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
@@ -1610,7 +2044,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   renameInput: {
-    backgroundColor: '#020617',
+    backgroundColor: '#040711',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#1e293b',

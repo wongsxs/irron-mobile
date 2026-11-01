@@ -6,7 +6,6 @@ export function getDatabase() {
   if (db) return db;
   try {
     db = SQLite.openDatabaseSync('irron_history.db');
-    // Inisialisasi tabel sessions & messages
     db.execSync(`
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS sessions (
@@ -40,6 +39,22 @@ export function getAllSessions() {
     return database.getAllSync('SELECT * FROM sessions ORDER BY updated_at DESC');
   } catch (err) {
     console.error('getAllSessions error:', err);
+    return [];
+  }
+}
+
+// Mencari sesi berdasarkan kata kunci
+export function searchSessions(query) {
+  const database = getDatabase();
+  if (!database) return [];
+  try {
+    const pattern = `%${query}%`;
+    return database.getAllSync(
+      'SELECT * FROM sessions WHERE title LIKE ? ORDER BY updated_at DESC',
+      [pattern]
+    );
+  } catch (err) {
+    console.error('searchSessions error:', err);
     return [];
   }
 }
@@ -91,6 +106,18 @@ export function deleteSession(sessionId) {
   }
 }
 
+// Hapus semua riwayat
+export function clearAllHistory() {
+  const database = getDatabase();
+  if (!database) return;
+  try {
+    database.runSync('DELETE FROM messages');
+    database.runSync('DELETE FROM sessions');
+  } catch (err) {
+    console.error('clearAllHistory error:', err);
+  }
+}
+
 // Ambil semua pesan dalam satu sesi
 export function getMessagesForSession(sessionId) {
   const database = getDatabase();
@@ -124,7 +151,6 @@ export function saveMessage(sessionId, message) {
       ]
     );
 
-    // Update waktu updated_at sesi
     database.runSync('UPDATE sessions SET updated_at = ? WHERE id = ?', [now, sessionId]);
   } catch (err) {
     console.error('saveMessage error:', err);
