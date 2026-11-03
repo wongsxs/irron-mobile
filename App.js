@@ -22,6 +22,7 @@ import { registerRootComponent } from 'expo';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
+import * as Speech from 'expo-speech';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as db from './src/db';
 
@@ -148,8 +149,19 @@ function FormattedText({ content, isUser }) {
   );
 }
 
+// Bersihkan format markdown sebelum dibacakan oleh Text-to-Speech
+function cleanTextForSpeech(text) {
+  if (!text) return '';
+  return text
+    .replace(/```[\s\S]*?```/g, ' [potongan kode terlampir] ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/[\*#_~]/g, '')
+    .trim();
+}
+
 // =================== KOMPONEN KONTEN PESAN ===================
-function MessageContent({ text, isUser, isStreaming, onCopyWhole, onShare }) {
+function MessageContent({ text, isUser, isStreaming, isSpeaking, onCopyWhole, onShare, onToggleSpeak }) {
   if (!text && isStreaming) {
     return (
       <View style={styles.typingContainer}>
@@ -180,6 +192,21 @@ function MessageContent({ text, isUser, isStreaming, onCopyWhole, onShare }) {
 
       {!isStreaming && text.length > 0 && (
         <View style={styles.assistantFooter}>
+          <TouchableOpacity 
+            style={[styles.actionPill, isSpeaking && styles.actionPillActive]} 
+            onPress={onToggleSpeak} 
+            activeOpacity={0.7}
+          >
+            <Ionicons 
+              name={isSpeaking ? "stop-circle-outline" : "volume-medium-outline"} 
+              size={13} 
+              color={isSpeaking ? "#38bdf8" : "#94a3b8"} 
+              style={{ marginRight: 4 }} 
+            />
+            <Text style={[styles.actionPillText, isSpeaking && styles.actionPillTextActive]}>
+              {isSpeaking ? 'Berhenti' : 'Suara'}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.actionPill} onPress={onCopyWhole} activeOpacity={0.7}>
             <Ionicons name="copy-outline" size={13} color="#94a3b8" style={{ marginRight: 4 }} />
             <Text style={styles.actionPillText}>Salin</Text>
@@ -394,6 +421,10 @@ function MainApp() {
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [editingSession, setEditingSession] = useState(null);
   const [editTitleText, setEditTitleText] = useState('');
+
+  // Status Voice / Text-to-Speech & Engine Info Modal
+  const [speakingMsgId, setSpeakingMsgId] = useState(null);
+  const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   
   const flatListRef = useRef(null);
   const downloadTaskRef = useRef(null);
@@ -403,6 +434,9 @@ function MainApp() {
   useEffect(() => {
     initChatDatabase();
     checkModelExists();
+    return () => {
+      Speech.stop();
+    };
   }, []);
 
   const initChatDatabase = () => {
@@ -435,6 +469,8 @@ function MainApp() {
 
   // Pilih Sesi dari Drawer
   const handleSelectSession = (sessionId) => {
+    Speech.stop();
+    setSpeakingMsgId(null);
     if (sessionId === activeSessionId) {
       setIsDrawerOpen(false);
       return;
@@ -447,6 +483,8 @@ function MainApp() {
   // Buat Sesi Obrolan Baru
   const handleCreateNewSession = () => {
     try {
+      Speech.stop();
+      setSpeakingMsgId(null);
       const newSession = db.createNewSession('Obrolan Baru');
       setSessions(prev => [newSession, ...prev]);
       setActiveSessionId(newSession.id);
@@ -655,6 +693,71 @@ function MainApp() {
     }
   };
 
+  // Text-to-Speech (Suara IRRON)
+  const handleToggleSpeak = async (msgId, text) => {
+    try {
+      if (speakingMsgId === msgId) {
+        await Speech.stop();
+        setSpeakingMsgId(null);
+        return;
+      }
+      await Speech.stop();
+      setSpeakingMsgId(msgId);
+      const clean = cleanTextForSpeech(text);
+      Speech.speak(clean, {
+        language: 'id-ID',
+        pitch: 1.0,
+        rate: 1.0,
+        onDone: () => setSpeakingMsgId(null),
+        onStopped: () => setSpeakingMsgId(null),
+        onError: () => setSpeakingMsgId(null),
+      });
+    } catch (err) {
+      console.log('Speech error:', err);
+      setSpeakingMsgId(null);
+    }
+  };
+
+  // Ekspor Seluruh Percakapan ke Format Markdown
+  const handleExportSession = async () => {
+    if (!messages || messages.length === 0) {
+      Alert.alert('Belum Ada Pesan', 'Belum ada riwayat obrolan untuk diekspor pada sesi ini.');
+      return;
+    }
+    const sessionObj = sessions.find(s => s.id === activeSessionId);
+    const sessionTitle = sessionObj ? sessionObj.title : 'IRRON_Chat';
+    const dateStr = new Date().toLocaleDateString('id-ID', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    let md = `# ${sessionTitle}\n`;
+    md += `*Diekspor dari IRRON AI Mobile v3 (100% Offline Engine)*\n`;
+    md += `*Tanggal: ${dateStr}*\n\n`;
+    md += `---\n\n`;
+
+    for (const m of messages) {
+      const isUser = m.role === 'user';
+      const sender = isUser ? '👤 Kamu' : '⚡ IRRON AI (3B)';
+      const time = m.createdAt ? ` _(${formatTimestamp(m.createdAt)})_` : '';
+      md += `### ${sender}${time}\n\n${m.text || ''}\n\n`;
+      if (m.image) {
+        md += `*(Foto terlampir)*\n\n`;
+      }
+      md += `---\n\n`;
+    }
+
+    try {
+      await Share.share({
+        message: md,
+        title: `${sessionTitle}.md`
+      });
+    } catch (e) {
+      console.log('Share error:', e);
+    }
+  };
+
   // Hentikan proses generasi jawaban
   const handleStopGeneration = () => {
     shouldStopRef.current = true;
@@ -672,6 +775,8 @@ function MainApp() {
 
   // Kirim Pesan & Generate Jawaban (Offline Inference)
   const handleSendMessage = async (customText = null) => {
+    Speech.stop();
+    setSpeakingMsgId(null);
     const rawText = customText !== null ? customText : inputText;
     const text = rawText.trim();
     if ((!text && !selectedImage) || isGenerating) return;
@@ -937,14 +1042,34 @@ function MainApp() {
           </View>
         </View>
 
-        <TouchableOpacity 
-          style={styles.newChatHeaderBtn} 
-          onPress={handleCreateNewSession}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="add" size={16} color="#ffffff" style={{ marginRight: 2 }} />
-          <Text style={styles.newChatHeaderBtnText}>Baru</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRightActions}>
+          <TouchableOpacity 
+            style={styles.headerIconBtn} 
+            onPress={() => setIsInfoModalOpen(true)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="hardware-chip-outline" size={19} color="#38bdf8" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.headerIconBtn} 
+            onPress={handleExportSession}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="share-social-outline" size={19} color="#94a3b8" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.newChatHeaderBtn} 
+            onPress={handleCreateNewSession}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={16} color="#ffffff" style={{ marginRight: 2 }} />
+            <Text style={styles.newChatHeaderBtnText}>Baru</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* MODE PILLS DENGAN ANDROID VECTOR ICONS */}
@@ -1038,8 +1163,10 @@ function MainApp() {
                     text={item.text} 
                     isUser={isUser}
                     isStreaming={isThisStreaming}
+                    isSpeaking={speakingMsgId === item.id}
                     onCopyWhole={() => handleCopyWholeMessage(item.text)}
                     onShare={() => handleShareMessage(item.text)}
+                    onToggleSpeak={() => handleToggleSpeak(item.id, item.text)}
                   />
                 </View>
 
@@ -1289,6 +1416,134 @@ function MainApp() {
           </View>
         </View>
       </Modal>
+
+      {/* =================== MODAL ENGINE & STORAGE INFO =================== */}
+      <Modal
+        visible={isInfoModalOpen}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setIsInfoModalOpen(false)}
+      >
+        <View style={styles.infoModalBackdrop}>
+          <Pressable style={styles.infoModalBackdropPressable} onPress={() => setIsInfoModalOpen(false)} />
+          <View style={styles.infoCard}>
+            <View style={styles.infoCardHeader}>
+              <View style={styles.infoCardHeaderLeft}>
+                <View style={styles.infoChipBadge}>
+                  <Ionicons name="hardware-chip" size={18} color="#38bdf8" />
+                </View>
+                <View>
+                  <Text style={styles.infoTitle}>Engine IRRON 3B</Text>
+                  <Text style={styles.infoSubtitle}>Spesifikasi AI On-Device</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setIsInfoModalOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={20} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.infoSpecsList} showsVerticalScrollIndicator={false}>
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="cube-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Model Otak</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>Qwen 2.5 3B Instruct</Text>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="shield-checkmark-outline" size={16} color="#10b981" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Mode Privasi</Text>
+                </View>
+                <View style={styles.specBadgeGreen}>
+                  <Text style={styles.specBadgeGreenText}>100% Offline</Text>
+                </View>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="server-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Ukuran Model</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>1.84 GB (Q4_K_M GGUF)</Text>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="speedometer-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Native Runtime</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>C++ llama.rn (ARM NEON)</Text>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="git-commit-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Threads CPU</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>4 Native CPU Threads</Text>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="layers-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Context Window</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>2048 Tokens (Sliding)</Text>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="flash-outline" size={16} color="#f59e0b" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Stream Throttling</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>60ms Batch (60 FPS)</Text>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="volume-medium-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Voice Assistant</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>Offline TTS (id-ID)</Text>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="file-tray-full-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Database Lokal</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>SQLite WAL Mode</Text>
+              </View>
+
+              <View style={styles.infoSpecItem}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="chatbubbles-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Total Sesi</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>{sessions.length} Obrolan</Text>
+              </View>
+
+              <View style={[styles.infoSpecItem, { borderBottomWidth: 0 }]}>
+                <View style={styles.infoSpecLeft}>
+                  <Ionicons name="chatbox-ellipses-outline" size={16} color="#38bdf8" style={styles.infoSpecIcon} />
+                  <Text style={styles.infoSpecLabel}>Pesan Sesi Ini</Text>
+                </View>
+                <Text style={styles.infoSpecValue}>{messages.length} Pesan</Text>
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity 
+              style={styles.infoCloseBtn} 
+              onPress={() => setIsInfoModalOpen(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.infoCloseBtnText}>Tutup Info Engine</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1504,6 +1759,21 @@ const styles = StyleSheet.create({
     color: '#10b981',
     fontSize: 11,
     fontWeight: '600',
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#1e293b',
   },
   newChatHeaderBtn: {
     flexDirection: 'row',
@@ -1839,10 +2109,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1e293b',
   },
+  actionPillActive: {
+    backgroundColor: '#0c2847',
+    borderColor: '#38bdf8',
+  },
   actionPillText: {
     color: '#94a3b8',
     fontSize: 11,
     fontWeight: '600',
+  },
+  actionPillTextActive: {
+    color: '#38bdf8',
+    fontWeight: '700',
   },
   messageImage: {
     width: 220,
@@ -2182,6 +2460,114 @@ const styles = StyleSheet.create({
   },
   renameSaveText: {
     color: '#020617',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // STYLES MODAL ENGINE INFO
+  infoModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  infoModalBackdropPressable: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  infoCard: {
+    width: '100%',
+    maxHeight: '85%',
+    backgroundColor: '#0c1322',
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+  },
+  infoCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e293b',
+    paddingBottom: 12,
+    marginBottom: 8,
+  },
+  infoCardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  infoChipBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#172554',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#1d4ed8',
+  },
+  infoTitle: {
+    color: '#f8fafc',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  infoSubtitle: {
+    color: '#64748b',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  infoSpecsList: {
+    marginVertical: 4,
+  },
+  infoSpecItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#131e33',
+  },
+  infoSpecLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  infoSpecIcon: {
+    marginRight: 8,
+  },
+  infoSpecLabel: {
+    color: '#94a3b8',
+    fontSize: 13,
+  },
+  infoSpecValue: {
+    color: '#f8fafc',
+    fontSize: 12.5,
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  specBadgeGreen: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#10b981',
+  },
+  specBadgeGreenText: {
+    color: '#10b981',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  infoCloseBtn: {
+    backgroundColor: '#0284c7',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  infoCloseBtnText: {
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '700',
   },

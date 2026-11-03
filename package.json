@@ -17,6 +17,7 @@
     "expo-file-system": "~18.0.0",
     "expo-font": "~13.0.4",
     "expo-image-picker": "~16.0.6",
+    "expo-speech": "~13.0.1",
     "expo-sqlite": "~15.1.4",
     "expo-status-bar": "~2.0.0",
     "llama.rn": "^0.13.0-rc.9",
