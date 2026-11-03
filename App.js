@@ -250,22 +250,46 @@ class ErrorBoundary extends Component {
   }
 }
 
-// System Prompt General AI
-const GENERAL_SYSTEM_PROMPT = `Kamu adalah IRRON, kecerdasan buatan personal serba bisa yang cerdas, adaptif, solutif, dan ramah.
-Kamu memiliki wawasan luas dalam berbagai bidang: ilmu pengetahuan umum, sains, matematika, sejarah, ide bisnis, penulisan artikel & kreatif, percakapan santai sehari-hari, serta rekayasa perangkat lunak dan teknologi.
-
-Karakteristik & Gaya Bicara IRRON:
-1. Panggil diri kamu 'IRRON'.
-2. Gaya bahasa luwes berbahasa Indonesia (menggunakan gaya akrab, santai, pintar, dan suportif layaknya sahabat diskusi yang cerdas), tidak kaku, dan mudah dimengerti.
-3. Selalu berikan jawaban yang to-the-point, berbobot, akurat, dan solutif.
-4. Jika memberikan kode pemrograman, selalu gunakan format markdown fenced code blocks dengan menyebutkan bahasa pemrograman di baris pertama (misal: \`\`\`python ... \`\`\`), sertakan komentar penjelas yang jelas.
-5. Jika pengguna melampirkan gambar/foto (misal: soal tugas, diagram, catatan, atau tangkapan layar), bantulah menganalisis, membaca, atau menyelesaikan persoalan di dalamnya secara terperinci.`;
+// System Prompt General AI Super Ringkas & Cerdas (Zero-Basa-Basi)
+const GENERAL_SYSTEM_PROMPT = `Kamu adalah IRRON, AI personal cerdas, solutif, ramah, dan to-the-point.
+Prinsip Jawaban:
+1. Langsung berikan inti solusi secara padat, akurat, dan solutif tanpa pengantar basa-basi panjang.
+2. Jika memberikan kode pemrograman, selalu gunakan format markdown code blocks lengkap dengan bahasa (misal: \`\`\`python) dan sertakan komentar penting.
+3. Untuk pertanyaan umum atau analisis foto, jelaskan solusinya secara terstruktur, jelas, dan gamblang.`;
 
 const MODES = [
-  { id: 'general', iconType: 'brain', label: 'General AI', prompt: `${GENERAL_SYSTEM_PROMPT}\nJawablah pertanyaan secara cerdas, komprehensif, dan mudah dipahami untuk segala topik umum.` },
-  { id: 'coder', iconType: 'code', label: 'Coding & Tech', prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada rekayasa perangkat lunak, algoritma, arsitektur, clean code, dan debugging dengan contoh kode konkret yang rapi berformat markdown.` },
-  { id: 'creative', iconType: 'bulb', label: 'Ide & Kreatif', prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan artikel/konten, copywriting, dan sudut pandang kreatif.` },
-  { id: 'chill', iconType: 'flash', label: 'Fast & Chill', prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, ringkas, padat informasi, tanpa bertele-tele.` }
+  {
+    id: 'general',
+    iconType: 'brain',
+    label: 'General AI',
+    temperature: 0.5,
+    maxTokens: 384,
+    prompt: `${GENERAL_SYSTEM_PROMPT}\nJawablah dengan cerdas, padat, dan mudah dipahami untuk segala topik umum.`
+  },
+  {
+    id: 'coder',
+    iconType: 'code',
+    label: 'Coding & Tech',
+    temperature: 0.2, // Temperatur rendah = presisi tinggi, kode bersih tanpa salah syntax
+    maxTokens: 512,
+    prompt: `${GENERAL_SYSTEM_PROMPT}\nFokus pada clean code, efisiensi algoritma, dan best practices software engineering. Sajikan kode rapi format markdown.`
+  },
+  {
+    id: 'creative',
+    iconType: 'bulb',
+    label: 'Ide & Kreatif',
+    temperature: 0.75, // Variasi lebih tinggi untuk brainstorming
+    maxTokens: 400,
+    prompt: `${GENERAL_SYSTEM_PROMPT}\nBantu brainstorming ide segar, penulisan kreatif, dan sudut pandang out-of-the-box secara ringkas.`
+  },
+  {
+    id: 'chill',
+    iconType: 'flash',
+    label: 'Fast & Chill',
+    temperature: 0.35,
+    maxTokens: 220, // Token terbatas agar jawaban selesai dalam 2-3 detik
+    prompt: `${GENERAL_SYSTEM_PROMPT}\nBerikan jawaban super to-the-point, sangat ringkas, padat informasi, tanpa kalimat pembuka/penutup basa-basi.`
+  }
 ];
 
 // Helper render icon mode
@@ -702,29 +726,53 @@ function MainApp() {
     
     let promptContent = userMessage.text;
     if (currentImage) {
-      promptContent = `[Pengguna melampirkan foto/gambar untuk dianalisis]\nPertanyaan/Instruksi: ${userMessage.text}`;
+      promptContent = `[Pengguna melampirkan foto/gambar untuk dianalisis]\n${userMessage.text}`;
     }
 
-    const formattedPrompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${promptContent}<|im_end|>\n<|im_start|>assistant\n`;
+    // Ambil maksimal 4 pesan obrolan sebelumnya (2 putaran tanya-jawab) agar AI punya ingatan kontekstual tanpa membebani CPU
+    const historyToInclude = messages
+      .filter(m => m.id !== 'welcome' && m.id !== assistantMsgId && m.text && m.text.trim().length > 0)
+      .slice(-4);
+
+    let conversationPrompt = '';
+    for (const msg of historyToInclude) {
+      const role = msg.role === 'user' ? 'user' : 'assistant';
+      conversationPrompt += `<|im_start|>${role}\n${msg.text}<|im_end|>\n`;
+    }
+
+    const formattedPrompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n${conversationPrompt}<|im_start|>user\n${promptContent}<|im_end|>\n<|im_start|>assistant\n`;
 
     try {
       if (llamaContext) {
         let streamText = '';
+        let lastRenderTime = 0;
+
         await llamaContext.completion(
           {
             prompt: formattedPrompt,
-            n_predict: 512,
-            temperature: 0.7,
-            stop: ['<|im_end|>', '<|im_start|>', 'user:']
+            n_predict: currentMode.maxTokens || 384,
+            temperature: currentMode.temperature || 0.5,
+            top_p: 0.9,
+            penalty_repeat: 1.12,
+            stop: ['<|im_end|>', '<|im_start|>', '<|endoftext|>', 'user:', '\nUser:']
           },
           (data) => {
             if (shouldStopRef.current) return;
             if (data?.token) {
               streamText += data.token;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: streamText } : m));
+              
+              // Throttle UI update setiap 60ms agar CPU lancar dan layar tetap 60 FPS mulus
+              const now = Date.now();
+              if (now - lastRenderTime > 60) {
+                lastRenderTime = now;
+                setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: streamText } : m));
+              }
             }
           }
         );
+
+        // Pastikan token terakhir tersimpan di state UI secara lengkap
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: streamText } : m));
 
         // Simpan pesan akhir AI ke SQLite
         db.saveMessage(targetSessionId, {
